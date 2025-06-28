@@ -1,11 +1,11 @@
 GRAMMAR = """
-        program          : stmnt
+        program          : stmt
                          | terminated
-                         | (terminated)+ stmnt?
+                         | (terminated)+ stmt?
 
-        ?terminated      : stmnt ";"
-        ?stmnt           : select_stmt | drop_stmnt | delete_stmnt | update_stmnt | truncate_stmnt | insert_stmnt
-                         | create_stmnt
+        ?terminated      : stmt ";"
+        ?stmt           : select_stmt | drop_stmt | delete_stmt | update_stmt | truncate_stmt | insert_stmt
+                         | create_stmt
 
         // we only want logically valid statements; and from is required for all other clauses
         // and so other clauses (e.g. where) are nested under from clause
@@ -82,7 +82,7 @@ GRAMMAR = """
         // e.g. some_func(col_x + 1)
         func_arg_list    : (expr ",")* expr
 
-        create_stmnt     : "create"i "table"i table_name "(" column_def_list ")"
+        create_stmt     : "create"i "table"i table_name "(" column_def_list ")"
         ?column_def_list  : (column_def ",")* column_def
         ?column_def       : column_name datatype primary_key? not_null?
         datatype         : INTEGER | TEXT | BOOL | NULL | REAL
@@ -90,17 +90,17 @@ GRAMMAR = """
         primary_key      : "primary"i "key"i
         not_null         : "not"i "null"i
 
-        drop_stmnt       : "drop"i "table"i table_name
+        drop_stmt       : "drop"i "table"i table_name
 
-        insert_stmnt     : "insert"i "into"i table_name "(" column_name_list ")" "values"i "(" value_list ")"
+        insert_stmt     : "insert"i "into"i table_name "(" column_name_list ")" "values"i "(" value_list ")"
         column_name_list : (column_name ",")* column_name
         value_list       : (literal ",")* literal
 
-        delete_stmnt     : "delete"i "from"i table_name where_clause?
+        delete_stmt     : "delete"i "from"i table_name where_clause?
 
-        update_stmnt     : "update"i table_name "set"i column_name "=" literal where_clause?
+        update_stmt     : "update"i table_name "set"i column_name "=" literal where_clause?
 
-        truncate_stmnt   : "truncate"i table_name
+        truncate_stmt   : "truncate"i table_name
 
         // datatype values
         TRUE             : "true"i

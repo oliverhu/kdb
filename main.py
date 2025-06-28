@@ -4,6 +4,7 @@ KDB - A simple SQL database implementation with REPL interface
 """
 
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 import os
@@ -109,13 +110,18 @@ def repl(db_file: str):
     table = db_open(db_file)
     frontend = Frontend()
     vm = VirtualMachine(table)
-    command = "select 1 from users"
-    print(frontend.parser.parse(command).pretty())
-    parse_tree = frontend.parser.parse(command)
-    transformer = ToAst()
-    tree = transformer.transform(parse_tree)
-    print(tree)
-    vm.run(tree)
+    commands = [
+        "create table users (id integer primary key, username text, email text)",
+        "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
+        "select * from users",
+    ]
+    for command in commands:
+        print(frontend.parser.parse(command).pretty())
+        parse_tree = frontend.parser.parse(command)
+        transformer = ToAst()
+        tree = transformer.transform(parse_tree)
+        print(tree)
+        vm.run(tree)
     # while True:
     #     command = input("> ")
     #     if command == "exit":
@@ -135,6 +141,19 @@ class Symbol(ast_utils.Ast):
         print(f"-> Accepting {self} to {visitor}")
         return visitor.visit(self)
 
+class SymbolicDataType(Enum):
+    """
+    Enums for system datatypes
+    NOTE: This represents data-types as understood by the parser; hence "Symbolic" suffix.
+    There is 1-1 correspondence to VM's notions of datatypes, which are datatypes we can
+    do algebra atop.
+    """
+
+    Integer = auto()
+    Text = auto()
+    Real = auto()
+    Blob = auto()
+    Boolean = auto()
 
 @dataclass
 class SelectClause(Symbol):
@@ -451,7 +470,7 @@ class ToAst(Transformer):
         else:
             return OrderedColumn(args[0], args[1])
 
-    def create_stmnt(self, args):
+    def create_stmt(self, args):
         return CreateStmt(args[0], args[1])
 
     def column_def(self, args):
@@ -459,25 +478,25 @@ class ToAst(Transformer):
         not_null = len(args) > 3 and args[3] == "not_null"
         return ColumnDef(args[0], args[1], primary_key, not_null)
 
-    def drop_stmnt(self, args):
+    def drop_stmt(self, args):
         return DropStmt(args[0])
 
-    def insert_stmnt(self, args):
+    def insert_stmt(self, args):
         return InsertStmt(args[0], args[1], args[2])
 
-    def delete_stmnt(self, args):
+    def delete_stmt(self, args):
         if len(args) == 1:
             return DeleteStmt(args[0])
         else:
             return DeleteStmt(args[0], args[1])
 
-    def update_stmnt(self, args):
+    def update_stmt(self, args):
         if len(args) == 3:
             return UpdateStmt(args[0], args[1], args[2])
         else:
             return UpdateStmt(args[0], args[1], args[2], args[3])
 
-    def truncate_stmnt(self, args):
+    def truncate_stmt(self, args):
         return TruncateStmt(args[0])
 
     def func_call(self, args):
@@ -488,6 +507,34 @@ class ToAst(Transformer):
 
     def nested(self, args):
         return Nested(args[0])
+
+    def column_def_list(self, args):
+        return args
+
+    def column_name(self, args):
+        assert len(args) == 1
+        val = args[0]
+        return ColumnName(val)
+
+    def primary(self, args):
+        assert len(args) == 1
+        return args[0]
+
+    def datatype(self, args):
+        """
+        Convert datatype text to arg
+        """
+        datatype = args[0].lower()
+        if datatype == "integer":
+            return SymbolicDataType.Integer
+        elif datatype == "real":
+            return SymbolicDataType.Real
+        elif datatype == "text":
+            return SymbolicDataType.Text
+        elif datatype == "blob":
+            return SymbolicDataType.Blob
+        else:
+            raise ValueError(f"Unrecognized datatype [{datatype}]")
 
     def table_name(self, args):
         return args[0]
@@ -642,25 +689,25 @@ class VirtualMachine(Visitor):
     def visit_ordered_column(self, stmt: OrderedColumn):
         pass
 
-    def visit_create_stmnt(self, stmt: CreateStmt):
+    def visit_create_stmt(self, stmt: CreateStmt):
         pass
 
     def visit_column_def(self, stmt: ColumnDef):
         pass
 
-    def visit_drop_stmnt(self, stmt: DropStmt):
+    def visit_drop_stmt(self, stmt: DropStmt):
         pass
 
-    def visit_insert_stmnt(self, stmt: InsertStmt):
+    def visit_insert_stmt(self, stmt: InsertStmt):
         pass
 
-    def visit_delete_stmnt(self, stmt: DeleteStmt):
+    def visit_delete_stmt(self, stmt: DeleteStmt):
         pass
 
-    def visit_update_stmnt(self, stmt: UpdateStmt):
+    def visit_update_stmt(self, stmt: UpdateStmt):
         pass
 
-    def visit_truncate_stmnt(self, stmt: TruncateStmt):
+    def visit_truncate_stmt(self, stmt: TruncateStmt):
         pass
 
     def visit_func_call(self, stmt: FuncCall):
