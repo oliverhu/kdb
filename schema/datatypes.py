@@ -7,6 +7,7 @@ class Datatype:
     __metaclass__ = ABCMeta
     typename = "NoType"
     is_fixed_size = False
+    fixed_length = 0
 
     @staticmethod
     def serialize(value: Any) -> bytes:
@@ -19,14 +20,14 @@ class Datatype:
 class Integer(Datatype):
     typename = "Integer"
     is_fixed_size = True
+    fixed_length = 4
 
     @staticmethod
-    def serialize(value: Any) -> bytes:
-        return value.to_bytes(1, sys.byteorder)
+    def serialize(value: int) -> bytes:
+        return value.to_bytes(4, sys.byteorder)
 
     @staticmethod
     def deserialize(value: bytes) -> Any:
-        print("deserialize int", value)
         return int.from_bytes(value, sys.byteorder)
 
 class Text(Datatype):
@@ -34,7 +35,7 @@ class Text(Datatype):
     is_fixed_size = False
 
     @staticmethod
-    def serialize(value: Any) -> bytes:
+    def serialize(value: str) -> bytes:
         return value.encode("utf-8")
 
     @staticmethod
@@ -43,6 +44,8 @@ class Text(Datatype):
 
 class Boolean(Datatype):
     typename = "Boolean"
+    is_fixed_size = True
+    fixed_length = 1
 
     @staticmethod
     def serialize(value: Any) -> bytes:

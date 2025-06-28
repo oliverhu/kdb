@@ -15,30 +15,58 @@ class Record:
     def get(self, colume_name: str):
         return self.values[colume_name]
 
-def serialize(record: Record) -> bytearray:
 
-    serialized_value = bytearray()
+"""
+Binary format of the record:
+1. key -> integer
+2. data -> {column_name: value}
+    2.1 data_header -> size of each column
+    2.2 data_body -> actual data
+"""
+def serialize(record: Record) -> bytearray:
+    key = b""
+    data = b""
+    data_header = b""
     for column in record.schema.columns:
+        if column.is_primary_key:
+            key = column.datatype.serialize(record.values[column.name])
         value = record.values[column.name]
         datatype = column.datatype
-        serialized_value += datatype.serialize(value)
-        serialized_value += b"\x00"
-        print("serialized_value", serialized_value)
-    return serialized_value
+        v_binary = datatype.serialize(value)
+        data_header += Integer.serialize(len(v_binary))
+        data += v_binary
+
+    key_size = Integer.serialize(len(key))
+    data_size = Integer.serialize(len(data_header) + len(data))
+    print("serialized", key_size, data_size, key, data_header, data)
+    return key_size + data_size + key + data_header + data
 
 def deserialize(serialized_value: bytearray, schema: BasicSchema) -> Record:
+    print("deserializing", schema)
     values = {}
-    column_values = serialized_value.split(b"\x00")
-    for column_value, column in zip(column_values, schema.columns):
-        datatype = column.datatype
-        values[column.name] = datatype.deserialize(column_value)
+    ptr = 0
+    key_size = Integer.deserialize(serialized_value[ptr:4])
+    ptr += 4
+    data_size = Integer.deserialize(serialized_value[ptr:ptr + 4])
+    ptr += 4
+    key = Integer.deserialize(serialized_value[ptr:ptr + key_size])
+    ptr += key_size
+    data_header = serialized_value[ptr:ptr + Integer.fixed_length * len(schema.columns)]
+    ptr += Integer.fixed_length * len(schema.columns)
+    data = serialized_value[ptr:ptr + data_size]
+    ptr = 0
+    for i, column in enumerate(schema.columns):
+        offset = data_header[i * Integer.fixed_length:i * Integer.fixed_length + Integer.fixed_length]
+        size = Integer.deserialize(offset)
+        values[column.name] = column.datatype.deserialize(data[ptr:ptr + size])
+        ptr += size
+    print("deserialized", values)
     return Record(values, schema)
 
 
 # quick test
 schema = BasicSchema("users", [Column("id", Integer(), True), Column("name", Text(), False)])
-record = Record(values={"id": 1, "name": "John"}, schema=schema)
+record = Record(values={"id": 3, "name": "John"}, schema=schema)
 serialized_value = serialize(record)
-print(serialized_value)
 deserialized_record = deserialize(serialized_value, schema)
 print(deserialized_record.values)
