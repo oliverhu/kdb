@@ -8,10 +8,11 @@ from enum import Enum, auto
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 import os
-
+from symbols import *
 from lark import Lark, Transformer, ast_utils
 
 from grammar import GRAMMAR
+from virtual_machine import VirtualMachine
 from visitor import Visitor
 # Pager is a module that provides a pager for the database.
 PAGE_SIZE = 4096
@@ -113,7 +114,7 @@ def repl(db_file: str):
     commands = [
         "create table users (id integer primary key, username text, email text)",
         "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
-        "select * from users",
+        "select username, email from users",
     ]
     for command in commands:
         print(frontend.parser.parse(command).pretty())
@@ -135,217 +136,13 @@ def repl(db_file: str):
         # table.execute(command)
 
 
-
-class Symbol(ast_utils.Ast):
-    def accept(self, visitor: Visitor):
-        print(f"-> Accepting {self} to {visitor}")
-        return visitor.visit(self)
-
 class SymbolicDataType(Enum):
-    """
-    Enums for system datatypes
-    NOTE: This represents data-types as understood by the parser; hence "Symbolic" suffix.
-    There is 1-1 correspondence to VM's notions of datatypes, which are datatypes we can
-    do algebra atop.
-    """
-
     Integer = auto()
     Text = auto()
     Real = auto()
     Blob = auto()
     Boolean = auto()
 
-@dataclass
-class SelectClause(Symbol):
-    selectables: List[Any]
-
-@dataclass
-class FromClause(Symbol):
-    source: Any
-
-
-@dataclass
-class SelectStmt(Symbol):
-    select_clause: SelectClause
-    from_clause: FromClause
-
-@dataclass
-class Selectable(Symbol):
-    value: Any
-
-@dataclass
-class Program(Symbol):
-    statements: list
-
-@dataclass
-class Literal(Symbol):
-    value: Any
-
-
-@dataclass
-class Expr(Symbol):
-    value: Any
-
-@dataclass
-class Condition(Symbol):
-    value: Any
-
-@dataclass
-class OrClause(Symbol):
-    left: Any
-    right: Any
-
-@dataclass
-class AndClause(Symbol):
-    left: Any
-    right: Any
-
-@dataclass
-class NotClause(Symbol):
-    operand: Any
-
-@dataclass
-class Comparison(Symbol):
-    left: Any
-    operator: str
-    right: Any
-
-@dataclass
-class Predicate(Symbol):
-    value: Any
-
-@dataclass
-class Term(Symbol):
-    left: Any
-    operator: str
-    right: Any
-
-@dataclass
-class Factor(Symbol):
-    left: Any
-    operator: str
-    right: Any
-
-@dataclass
-class UnaryOp(Symbol):
-    operator: str
-    operand: Any
-
-@dataclass
-class BinaryOp(Symbol):
-    operator: str
-    left: Any
-    right: Any
-
-@dataclass
-class Primary(Symbol):
-    value: Any
-
-@dataclass
-class Identifier(Symbol):
-    name: str
-
-@dataclass
-class ColumnName(Symbol):
-    name: str
-
-@dataclass
-class WhereClause(Symbol):
-    condition: Any
-
-@dataclass
-class GroupByClause(Symbol):
-    columns: List[Any]
-
-@dataclass
-class HavingClause(Symbol):
-    condition: Any
-
-@dataclass
-class OrderByClause(Symbol):
-    columns: List[Any]
-
-@dataclass
-class LimitClause(Symbol):
-    limit: Any
-    offset: Optional[Any] = None
-
-@dataclass
-class Source(Symbol):
-    value: Any
-
-@dataclass
-class SingleSource(Symbol):
-    table_name: str
-    alias: Optional[str] = None
-
-@dataclass
-class Joining(Symbol):
-    value: Any
-
-@dataclass
-class ConditionedJoin(Symbol):
-    source: Any
-    single_source: Any
-    condition: Any
-    join_modifier: Optional[str] = None
-
-@dataclass
-class UnconditionedJoin(Symbol):
-    source: Any
-    single_source: Any
-
-@dataclass
-class OrderedColumn(Symbol):
-    column: Any
-    direction: Optional[str] = None
-
-@dataclass
-class CreateStmt(Symbol):
-    table_name: str
-    column_defs: List[Any]
-
-@dataclass
-class ColumnDef(Symbol):
-    column_name: str
-    datatype: str
-    primary_key: bool = False
-    not_null: bool = False
-
-@dataclass
-class DropStmt(Symbol):
-    table_name: str
-
-@dataclass
-class InsertStmt(Symbol):
-    table_name: str
-    columns: List[str]
-    values: List[Any]
-
-@dataclass
-class DeleteStmt(Symbol):
-    table_name: str
-    where_clause: Optional[Any] = None
-
-@dataclass
-class UpdateStmt(Symbol):
-    table_name: str
-    column: str
-    value: Any
-    where_clause: Optional[Any] = None
-
-@dataclass
-class TruncateStmt(Symbol):
-    table_name: str
-
-@dataclass
-class FuncCall(Symbol):
-    func_name: str
-    args: List[Any]
-
-@dataclass
-class Nested(Symbol):
-    value: Any
 
 class ToAst(Transformer):
     def program(self, args):
@@ -579,142 +376,6 @@ class ToAst(Transformer):
         return args
 
 
-class VirtualMachine(Visitor):
-    def __init__(self, table: Table):
-        self.table = table
-        self.stack = []
-        self.heap = {}
-        self.pc = 0
-        self.running = True
-
-    def run(self,program):
-        self.execute(program)
-
-    def execute(self, stmt: Symbol):
-        stmt.accept(self)
-
-    def visit_select_stmt(self, stmt: SelectStmt):
-        pass
-
-    def visit_from_clause(self, stmt: FromClause):
-        pass
-
-    def visit_select_clause(self, stmt: SelectClause):
-        pass
-
-    def visit_selectable(self, stmt: Selectable):
-        pass
-
-    def visit_program(self, stmt: Program):
-        print(f"-> Visiting program {stmt}")
-        print(stmt.statements)
-        for stmt in stmt.statements:
-            self.execute(stmt)
-
-    def visit_literal(self, stmt: Literal):
-        pass
-
-    def visit_expr(self, stmt: Expr):
-        pass
-
-    def visit_condition(self, stmt: Condition):
-        pass
-
-    def visit_or_clause(self, stmt: OrClause):
-        pass
-
-    def visit_and_clause(self, stmt: AndClause):
-        pass
-
-    def visit_not_clause(self, stmt: NotClause):
-        pass
-
-    def visit_comparison(self, stmt: Comparison):
-        pass
-
-    def visit_predicate(self, stmt: Predicate):
-        pass
-
-    def visit_term(self, stmt: Term):
-        pass
-
-    def visit_factor(self, stmt: Factor):
-        pass
-
-    def visit_unary_op(self, stmt: UnaryOp):
-        pass
-
-    def visit_binary_op(self, stmt: BinaryOp):
-        pass
-
-    def visit_primary(self, stmt: Primary):
-        pass
-
-    def visit_identifier(self, stmt: Identifier):
-        pass
-
-    def visit_column_name(self, stmt: ColumnName):
-        pass
-
-    def visit_where_clause(self, stmt: WhereClause):
-        pass
-
-    def visit_group_by_clause(self, stmt: GroupByClause):
-        pass
-
-    def visit_having_clause(self, stmt: HavingClause):
-        pass
-
-    def visit_order_by_clause(self, stmt: OrderByClause):
-        pass
-
-    def visit_limit_clause(self, stmt: LimitClause):
-        pass
-
-    def visit_source(self, stmt: Source):
-        pass
-
-    def visit_single_source(self, stmt: SingleSource):
-        pass
-
-    def visit_joining(self, stmt: Joining):
-        pass
-
-    def visit_conditioned_join(self, stmt: ConditionedJoin):
-        pass
-
-    def visit_unconditioned_join(self, stmt: UnconditionedJoin):
-        pass
-
-    def visit_ordered_column(self, stmt: OrderedColumn):
-        pass
-
-    def visit_create_stmt(self, stmt: CreateStmt):
-        pass
-
-    def visit_column_def(self, stmt: ColumnDef):
-        pass
-
-    def visit_drop_stmt(self, stmt: DropStmt):
-        pass
-
-    def visit_insert_stmt(self, stmt: InsertStmt):
-        pass
-
-    def visit_delete_stmt(self, stmt: DeleteStmt):
-        pass
-
-    def visit_update_stmt(self, stmt: UpdateStmt):
-        pass
-
-    def visit_truncate_stmt(self, stmt: TruncateStmt):
-        pass
-
-    def visit_func_call(self, stmt: FuncCall):
-        pass
-
-    def visit_nested(self, stmt: Nested):
-        pass
 
 
 def main():
