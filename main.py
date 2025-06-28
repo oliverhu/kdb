@@ -30,8 +30,22 @@ class Record:
     def get(self, colume_name: str):
         return self.values[colume_name]
 
-    def serialize(self):
-        return f"{self.id},{self.username},{self.email}"
+def serialize(record: Record) -> bytes:
+    for column in record.schema.columns:
+        value = record.values[column.name]
+        datatype = column.datatype
+        serialized_value = datatype.serialize(value)
+        serialized_value.append(b"\x00")
+    serialized_value = b"".join(serialized_value)
+    return serialized_value
+
+def deserialize(serialized_value: bytes, schema: BasicSchema) -> Record:
+    values = {}
+    column_values = serialized_value.split(b"\x00")[0]
+    for column_value, column in enumerate(column_values, schema.columns):
+        datatype = column.datatype
+        values[column.name] = datatype.deserialize(column_value)
+    return Record(values, schema)
 
 
 def db_open(file_name):
