@@ -8,63 +8,30 @@ from enum import Enum, auto
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 import os
+from pager import Pager
+from schema.basic_schema import BasicSchema
 from symbols import *
 from lark import Lark, Transformer, ast_utils
 
 from grammar import GRAMMAR
 from virtual_machine import VirtualMachine
 from visitor import Visitor
-# Pager is a module that provides a pager for the database.
-PAGE_SIZE = 4096
-TABLE_MAX_PAGES = 100
 
-class Row:
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
+
+class Record:
+    """
+    values -> {column_name: value}
+    schema -> [column: name, datatype, is_primary_key]
+    """
+    def __init__(self, values: dict = None, schema: BasicSchema = None):
+        self.values = values
+        self.schema = schema
+
+    def get(self, colume_name: str):
+        return self.values[colume_name]
 
     def serialize(self):
         return f"{self.id},{self.username},{self.email}"
-
-class Pager:
-    def __init__(self, file_name):
-        self.file_name = file_name
-        self.file_ptr = open(file_name, "rb+")
-        self.pages = [None] * TABLE_MAX_PAGES
-
-        # initialize from the file
-        self.file_length = os.path.getsize(file_name)
-        self.num_pages = self.file_length // PAGE_SIZE
-
-    def init_pages(self):
-        for i in range(self.num_pages):
-            self.get_page(i)
-
-    def get_page(self, page_num):
-        if self.pages[page_num] is None:
-            if page_num < self.num_pages:
-                self.file_ptr.seek(page_num * PAGE_SIZE)
-                self.pages[page_num] = self.file_ptr.read(PAGE_SIZE)
-            else:
-                self.pages[page_num] = bytearray(PAGE_SIZE)
-        return self.pages[page_num]
-
-    def write_page(self, page_num, data):
-        self.pages[page_num] = data
-        self.flush_page(page_num)
-        return self.pages[page_num]
-
-    def flush_page(self, page_num):
-        if self.pages[page_num] is None:
-            print(f"Tried to flush page {page_num} but it is None")
-            return
-        self.file_ptr.seek(page_num * PAGE_SIZE)
-        self.file_ptr.write(self.pages[page_num])
-        self.file_ptr.flush() # write to disk
-
-    def close(self):
-        self.file_ptr.close()
 
 
 def db_open(file_name):
@@ -113,15 +80,14 @@ def repl(db_file: str):
     vm = VirtualMachine(table)
     commands = [
         "create table users (id integer primary key, username text, email text)",
-        "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
-        "select username, email from users",
+        # "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
+        # "select username, email from users",
     ]
     for command in commands:
         print(frontend.parser.parse(command).pretty())
         parse_tree = frontend.parser.parse(command)
         transformer = ToAst()
         tree = transformer.transform(parse_tree)
-        print(tree)
         vm.run(tree)
     # while True:
     #     command = input("> ")

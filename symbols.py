@@ -4,9 +4,9 @@ from lark import ast_utils
 
 from visitor import Visitor
 
+
 class Symbol(ast_utils.Ast):
     def accept(self, visitor: Visitor):
-        print(f"-> Accepting {self} to {visitor}")
         return visitor.visit(self)
 
 
@@ -156,16 +156,15 @@ class OrderedColumn(Symbol):
     direction: Optional[str] = None
 
 @dataclass
-class CreateStmt(Symbol):
-    table_name: str
-    column_defs: List[Any]
-
-@dataclass
 class ColumnDef(Symbol):
     column_name: str
     datatype: str
     primary_key: bool = False
     not_null: bool = False
+@dataclass
+class CreateStmt(Symbol):
+    table_name: str
+    column_defs: List[ColumnDef]
 
 @dataclass
 class DropStmt(Symbol):

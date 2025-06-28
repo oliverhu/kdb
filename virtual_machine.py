@@ -1,4 +1,5 @@
 from pager import Table
+from schema.basic_schema import BasicSchema
 from visitor import Visitor
 from symbols import *
 
@@ -29,8 +30,6 @@ class VirtualMachine(Visitor):
         pass
 
     def visit_program(self, stmt: Program):
-        print(f"-> Visiting program {stmt}")
-        print(stmt.statements)
         for stmt in stmt.statements:
             self.execute(stmt)
 
@@ -113,7 +112,10 @@ class VirtualMachine(Visitor):
         pass
 
     def visit_create_stmt(self, stmt: CreateStmt):
-        pass
+        schema = BasicSchema(stmt.table_name,
+                             [ColumnDef(col.column_name, col.datatype, col.primary_key, col.not_null) for col in stmt.column_defs])
+        table_name = stmt.table_name
+
 
     def visit_column_def(self, stmt: ColumnDef):
         pass

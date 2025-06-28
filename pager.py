@@ -1,21 +1,48 @@
 # Pager is a module that provides a pager for the database.
+import os
+
 PAGE_SIZE = 4096
 TABLE_MAX_PAGES = 100
 
-class Row:
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
-
-    def serialize(self):
-        return f"{self.id},{self.username},{self.email}"
 
 class Pager:
     def __init__(self, file_name):
         self.file_name = file_name
-        self.file_handle = open(file_name, "wr")
-        self.pages = []
+        self.file_ptr = open(file_name, "rb+")
+        self.pages = [None] * TABLE_MAX_PAGES
+
+        # initialize from the file
+        self.file_length = os.path.getsize(file_name)
+        self.num_pages = self.file_length // PAGE_SIZE
+
+    def init_pages(self):
+        for i in range(self.num_pages):
+            self.get_page(i)
+
+    def get_page(self, page_num):
+        if self.pages[page_num] is None:
+            if page_num < self.num_pages:
+                self.file_ptr.seek(page_num * PAGE_SIZE)
+                self.pages[page_num] = self.file_ptr.read(PAGE_SIZE)
+            else:
+                self.pages[page_num] = bytearray(PAGE_SIZE)
+        return self.pages[page_num]
+
+    def write_page(self, page_num, data):
+        self.pages[page_num] = data
+        self.flush_page(page_num)
+        return self.pages[page_num]
+
+    def flush_page(self, page_num):
+        if self.pages[page_num] is None:
+            print(f"Tried to flush page {page_num} but it is None")
+            return
+        self.file_ptr.seek(page_num * PAGE_SIZE)
+        self.file_ptr.write(self.pages[page_num])
+        self.file_ptr.flush() # write to disk
+
+    def close(self):
+        self.file_ptr.close()
 
 class Table:
     def __init__(self, pager: Pager):
@@ -38,4 +65,3 @@ class Table:
             if row.id == id:
                 return row
         return None
-
