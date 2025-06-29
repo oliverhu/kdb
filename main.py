@@ -61,9 +61,8 @@ class Frontend:
 
 
 def repl(db_file: str):
-    table = db_open(db_file)
     frontend = Frontend()
-    vm = VirtualMachine(table)
+    vm = VirtualMachine(db_file)
     commands = [
         "create table users (id integer primary key, username text, email text)",
         # "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",

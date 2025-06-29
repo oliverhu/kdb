@@ -1,15 +1,16 @@
 from pager import Table
 from schema.basic_schema import BasicSchema
+from state_manager import StateManager
 from visitor import Visitor
 from symbols import *
 
 class VirtualMachine(Visitor):
-    def __init__(self, table: Table):
-        self.table = table
+    def __init__(self, file_path: str):
         self.stack = []
         self.heap = {}
         self.pc = 0
         self.running = True
+        self.state_manager = StateManager(file_path)
 
     def run(self,program):
         self.execute(program)
@@ -115,6 +116,8 @@ class VirtualMachine(Visitor):
         schema = BasicSchema(stmt.table_name,
                              [ColumnDef(col.column_name, col.datatype, col.primary_key, col.not_null) for col in stmt.column_defs])
         table_name = stmt.table_name
+        # TODO: table/schema is only stored in memory for now :/
+        self.state_manager.register_schema(table_name, schema)
 
 
     def visit_column_def(self, stmt: ColumnDef):

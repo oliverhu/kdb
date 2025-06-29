@@ -28,6 +28,10 @@ class Pager:
                 self.pages[page_num] = bytearray(PAGE_SIZE)
         return self.pages[page_num]
 
+    def get_free_page(self):
+        num_pages += 1
+        return num_pages - 1
+
     def write_page(self, page_num, data):
         self.pages[page_num] = data
         self.flush_page(page_num)
