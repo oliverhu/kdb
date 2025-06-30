@@ -1,7 +1,9 @@
 # Pager is a module that provides a pager for the database.
 import os
 
-from schema.datatypes import Integer
+from record import Record, serialize, deserialize
+from schema.basic_schema import BasicSchema, Column
+from schema.datatypes import Integer, Text
 
 PAGE_SIZE = 4096
 TABLE_MAX_PAGES = 100
@@ -50,21 +52,36 @@ class PageHeader:
 class Pager:
     def __init__(self, file_name):
         self.file_name = file_name
-        self.file_ptr = open(file_name, "rb+")
+        if not os.path.exists(file_name):
+            self.file_ptr = open(file_name, "wb+")
+            self.file_length = 0
+            self.num_pages = 0
+            self.init_file_header()
+        else:
+            self.file_ptr = open(file_name, "rb+")
+            # initialize from the file
+            self.file_length = os.path.getsize(file_name)
+            self.num_pages = self.file_length // PAGE_SIZE
+
         self.pages = [None] * TABLE_MAX_PAGES
 
-        # initialize from the file
-        self.file_length = os.path.getsize(file_name)
-        self.num_pages = self.file_length // PAGE_SIZE
+        self.file_header = self.read_file_header()
+        self.init_pages()
 
     def init_pages(self):
         for i in range(self.num_pages):
             self.get_page(i)
 
+    @property
+    def page_size(self):
+        return PAGE_SIZE
+
     def get_page(self, page_num):
+        if page_num >= TABLE_MAX_PAGES:
+            return bytearray(self.page_size)
         if self.pages[page_num] is None:
             if page_num < self.num_pages:
-                self.file_ptr.seek(page_num * PAGE_SIZE)
+                self.file_ptr.seek(100 + page_num * PAGE_SIZE)
                 self.pages[page_num] = self.file_ptr.read(PAGE_SIZE)
             else:
                 self.pages[page_num] = bytearray(PAGE_SIZE)
@@ -83,7 +100,7 @@ class Pager:
         if self.pages[page_num] is None:
             print(f"Tried to flush page {page_num} but it is None")
             return
-        self.file_ptr.seek(page_num * PAGE_SIZE)
+        self.file_ptr.seek(100 + page_num * PAGE_SIZE)
         self.file_ptr.write(self.pages[page_num])
         self.file_ptr.flush() # write to disk
 
@@ -108,6 +125,9 @@ class Pager:
         file_header = file_header.to_header()
         self.file_ptr.write(file_header)
         self.file_ptr.flush()
+
+    def read_page(self, page_num):
+        return self.get_page(page_num)
 
 class Table:
     def __init__(self, pager: Pager):
@@ -194,5 +214,90 @@ def test_file_header():
 
     print("All file header tests passed!")
 
+
+def test_pager():
+    # Test creating a new database file
+    test_db_file = "test.db"
+    if os.path.exists(test_db_file):
+        os.remove(test_db_file)
+
+    # Create new pager and verify file header
+    pager = Pager(test_db_file)
+    assert pager.file_header.version == "kdb000"
+    assert pager.file_header.next_free_page == 0
+    assert pager.file_header.has_free_list == False
+
+    # Create a simple schema for testing
+    schema = BasicSchema("test_table", [
+        Column("id", Integer(), True),
+        Column("data", Text(), False)
+    ])
+
+    # Create test records/cells
+    record1 = Record(values={"id": 1, "data": "test data 1"}, schema=schema)
+    record2 = Record(values={"id": 2, "data": "test data 2"}, schema=schema)
+
+    # Test writing and reading a page with records
+    test_header = PageHeader(
+        node_type="L",  # Leaf node
+        is_root=True,
+        parent_page_num=0,
+        num_cells=2,
+        allocation_pointer=pager.page_size,  # Start from end
+        cell_pointers=[]  # Will be filled when adding records
+    )
+
+    # Serialize records
+    record1_bytes = serialize(record1)
+    record2_bytes = serialize(record2)
+
+    # Calculate cell positions from end of page
+    pos1 = pager.page_size - len(record1_bytes)
+    pos2 = pos1 - len(record2_bytes)
+
+    # Update header with cell pointers
+    test_header.cell_pointers = [pos1, pos2]
+    test_header.allocation_pointer = pos2
+    header_bytes = test_header.to_header()
+
+    # Create a full page buffer and write header and records
+    test_page = bytearray(pager.page_size)
+    test_page[:len(header_bytes)] = header_bytes
+    test_page[pos1:pos1 + len(record1_bytes)] = record1_bytes
+    test_page[pos2:pos2 + len(record2_bytes)] = record2_bytes
+
+    # Write page and verify
+    page_num = 1
+    pager.write_page(page_num, bytes(test_page))
+    read_page = pager.read_page(page_num)
+    assert read_page == test_page, "Written and read pages don't match"
+
+    # Verify records can be read back
+    read_header = PageHeader.from_header(read_page)
+    print(f"read_record1 slice: offset={read_header.cell_pointers[0]}, length={len(record1_bytes)}")
+    print(f"bytes: {read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len(record1_bytes)]}")
+    print(f"read_record2 slice: offset={read_header.cell_pointers[1]}, length={len(record2_bytes)}")
+    print(f"bytes: {read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len(record2_bytes)]}")
+    read_record1 = deserialize(read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len(record1_bytes)], schema)
+    read_record2 = deserialize(read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len(record2_bytes)], schema)
+
+    assert read_record1.values["id"] == record1.values["id"]
+    assert read_record1.values["data"] == record1.values["data"]
+    assert read_record2.values["id"] == record2.values["id"]
+    assert read_record2.values["data"] == record2.values["data"]
+
+    # Test reading non-existent page returns empty page
+    empty_page = pager.read_page(999)
+    assert len(empty_page) == pager.page_size
+    assert all(b == 0 for b in empty_page)
+
+    # Clean up
+    pager.close()
+    os.remove(test_db_file)
+
+    print("All pager tests passed!")
+
+
 test_file_header()
 test_page_header()
+test_pager()
