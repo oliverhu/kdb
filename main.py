@@ -65,7 +65,7 @@ def repl(db_file: str):
     vm = VirtualMachine(db_file)
     commands = [
         "create table users (id integer primary key, username text, email text)",
-        # "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
+        "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
         # "select username, email from users",
     ]
     for command in commands:

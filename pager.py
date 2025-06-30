@@ -1,9 +1,26 @@
 # Pager is a module that provides a pager for the database.
 import os
 
+from schema.datatypes import Integer
+
 PAGE_SIZE = 4096
 TABLE_MAX_PAGES = 100
 
+
+class FileHeader:
+    def __init__(self, version: str, next_free_page: int, has_free_list: bool):
+        self.version = version
+        self.next_free_page = next_free_page
+        self.has_free_list = has_free_list
+
+    def from_header(header: bytes):
+        version = header[:6]
+        next_free_page = Integer.deserialize(header[6:10])
+        has_free_list = header[10]
+        return FileHeader(version, next_free_page, has_free_list)
+
+    def to_header(self):
+        return self.version + Integer.serialize(self.next_free_page) + Integer.serialize(self.has_free_list)
 
 class Pager:
     def __init__(self, file_name):
@@ -47,6 +64,25 @@ class Pager:
 
     def close(self):
         self.file_ptr.close()
+
+    def init_file_header(self):
+        self.file_ptr.seek(0)
+        file_header = FileHeader(version="kdb000", next_free_page=self.num_pages, has_free_list=False)
+        file_header = file_header.to_header()
+        self.file_ptr.write(file_header)
+        self.file_ptr.flush()
+
+    def read_file_header(self):
+        self.file_ptr.seek(0)
+        file_header = self.file_ptr.read(100)
+        return FileHeader.from_header(file_header)
+
+    def set_free_page_header(self, page_num: int):
+        self.file_ptr.seek(100)
+        file_header = FileHeader(version="kdb000", next_free_page=page_num, has_free_list=False)
+        file_header = file_header.to_header()
+        self.file_ptr.write(file_header)
+        self.file_ptr.flush()
 
 class Table:
     def __init__(self, pager: Pager):

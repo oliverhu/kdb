@@ -13,5 +13,9 @@ class StateManager:
         self.pager = Pager(file_path)
         self.schemas = {}
 
-    def register_schema(self, table_name: str, schema: BasicSchema):
+    def register_table(self, table_name: str, schema: BasicSchema):
         self.schemas[table_name] = schema
+        print(f"Registered schema for table {table_name}: {schema}")
+
+    def get_table(self, table_name: str):
+        return self.schemas[table_name]

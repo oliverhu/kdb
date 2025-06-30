@@ -1,4 +1,5 @@
 from pager import Table
+from record import Record
 from schema.basic_schema import BasicSchema
 from state_manager import StateManager
 from visitor import Visitor
@@ -117,7 +118,7 @@ class VirtualMachine(Visitor):
                              [ColumnDef(col.column_name, col.datatype, col.primary_key, col.not_null) for col in stmt.column_defs])
         table_name = stmt.table_name
         # TODO: table/schema is only stored in memory for now :/
-        self.state_manager.register_schema(table_name, schema)
+        self.state_manager.register_table(table_name, schema)
 
 
     def visit_column_def(self, stmt: ColumnDef):
@@ -127,7 +128,10 @@ class VirtualMachine(Visitor):
         pass
 
     def visit_insert_stmt(self, stmt: InsertStmt):
-        pass
+        table_name = stmt.table_name
+        schema = self.state_manager.schemas[table_name]
+        record = Record(values=stmt.values, schema=schema)
+        self.state_manager.pager.write_record(record)
 
     def visit_delete_stmt(self, stmt: DeleteStmt):
         pass
