@@ -3,7 +3,7 @@ Database File
 │                    Database File                            │
 ├─────────────────────────────────────────────────────────────┤
 │ File Header (100 bytes)                                     │
-│ ├─ Version: "kdb0"                                        │
+│ ├─ Version: "kdb0"                                          │
 │ ├─ Next Free Page: <page_num>                               │
 │ ├─ Has Free List: <boolean>                                 │
 │ └─ Padding: <76 bytes>                                      │
