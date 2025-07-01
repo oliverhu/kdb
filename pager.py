@@ -129,6 +129,48 @@ class Pager:
     def read_page(self, page_num):
         return self.get_page(page_num)
 
+    def insert(self, record: Record, page_num: int):
+        """
+        Insert a record into the specified page.
+        The record is serialized and added to the page, updating the page header accordingly.
+        Returns a tuple of (position, length) where the record was stored.
+        """
+        # Get the current page
+        page = bytearray(self.get_page(page_num))
+
+        # Parse the page header
+        header = PageHeader.from_header(page)
+
+        # Serialize the record
+        record_bytes = serialize(record)
+        record_length = len(record_bytes)
+
+        # Calculate position for the new record (from end of page)
+        record_pos = self.page_size - record_length
+
+        # If this is not the first record, adjust position to avoid overlap
+        if header.num_cells > 0:
+            # Find the minimum cell pointer to ensure we don't overlap
+            min_cell_pointer = min(header.cell_pointers)
+            record_pos = min_cell_pointer - record_length
+
+        # Update the page header
+        header.num_cells += 1
+        header.cell_pointers.append(record_pos)
+        header.allocation_pointer = record_pos
+
+        # Write the updated header back to the page
+        header_bytes = header.to_header()
+        page[:len(header_bytes)] = header_bytes
+
+        # Write the record data to the page
+        page[record_pos:record_pos + record_length] = record_bytes
+
+        # Write the updated page back to disk
+        self.write_page(page_num, bytes(page))
+
+        return (record_pos, record_length)
+
 class Table:
     def __init__(self, pager: Pager):
         self.pager = pager
@@ -237,54 +279,29 @@ def test_pager():
     record1 = Record(values={"id": 1, "data": "test data 1"}, schema=schema)
     record2 = Record(values={"id": 2, "data": "test data 2"}, schema=schema)
 
-    # Test writing and reading a page with records
-    test_header = PageHeader(
-        node_type="L",  # Leaf node
-        is_root=True,
-        parent_page_num=0,
-        num_cells=2,
-        allocation_pointer=pager.page_size,  # Start from end
-        cell_pointers=[]  # Will be filled when adding records
-    )
+    # Insert records using the new insert function
+    pos1, len1 = pager.insert(record1, 1)
+    pos2, len2 = pager.insert(record2, 1)
 
-    # Serialize records
-    record1_bytes = serialize(record1)
-    record2_bytes = serialize(record2)
+    print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2})")
 
-    # Calculate cell positions from end of page
-    pos1 = pager.page_size - len(record1_bytes)
-    pos2 = pos1 - len(record2_bytes)
+    # Read page and verify records can be read back
+    read_page = pager.read_page(1)
+    read_header = PageHeader.from_header(read_page)
 
-    # Update header with cell pointers
-    test_header.cell_pointers = [pos1, pos2]
-    test_header.allocation_pointer = pos2
-    header_bytes = test_header.to_header()
-
-    # Create a full page buffer and write header and records
-    test_page = bytearray(pager.page_size)
-    test_page[:len(header_bytes)] = header_bytes
-    test_page[pos1:pos1 + len(record1_bytes)] = record1_bytes
-    test_page[pos2:pos2 + len(record2_bytes)] = record2_bytes
-
-    # Write page and verify
-    page_num = 1
-    pager.write_page(page_num, bytes(test_page))
-    read_page = pager.read_page(page_num)
-    assert read_page == test_page, "Written and read pages don't match"
+    print(f"Page header: num_cells={read_header.num_cells}, cell_pointers={read_header.cell_pointers}")
 
     # Verify records can be read back
-    read_header = PageHeader.from_header(read_page)
-    print(f"read_record1 slice: offset={read_header.cell_pointers[0]}, length={len(record1_bytes)}")
-    print(f"bytes: {read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len(record1_bytes)]}")
-    print(f"read_record2 slice: offset={read_header.cell_pointers[1]}, length={len(record2_bytes)}")
-    print(f"bytes: {read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len(record2_bytes)]}")
-    read_record1 = deserialize(read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len(record1_bytes)], schema)
-    read_record2 = deserialize(read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len(record2_bytes)], schema)
+    read_record1 = deserialize(read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len1], schema)
+    read_record2 = deserialize(read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len2], schema)
 
     assert read_record1.values["id"] == record1.values["id"]
     assert read_record1.values["data"] == record1.values["data"]
     assert read_record2.values["id"] == record2.values["id"]
     assert read_record2.values["data"] == record2.values["data"]
+
+    print(f"Record 1 verified: {read_record1.values}")
+    print(f"Record 2 verified: {read_record2.values}")
 
     # Test reading non-existent page returns empty page
     empty_page = pager.read_page(999)
@@ -298,6 +315,56 @@ def test_pager():
     print("All pager tests passed!")
 
 
+def test_insert():
+    # Test the insert function
+    test_db_file = "test_insert.db"
+    if os.path.exists(test_db_file):
+        os.remove(test_db_file)
+
+    # Create new pager
+    pager = Pager(test_db_file)
+
+    # Create a simple schema for testing
+    schema = BasicSchema("test_table", [
+        Column("id", Integer(), True),
+        Column("data", Text(), False)
+    ])
+
+    # Create test records
+    record1 = Record(values={"id": 1, "data": "first record"}, schema=schema)
+    record2 = Record(values={"id": 2, "data": "second record"}, schema=schema)
+    record3 = Record(values={"id": 3, "data": "third record"}, schema=schema)
+
+    # Insert records into page 1
+    pos1, len1 = pager.insert(record1, 1)
+    pos2, len2 = pager.insert(record2, 1)
+    pos3, len3 = pager.insert(record3, 1)
+
+    print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2}), {pos3} (length: {len3})")
+
+    # Read the page back and verify
+    page = pager.read_page(1)
+    header = PageHeader.from_header(page)
+
+    print(f"Page header: num_cells={header.num_cells}, cell_pointers={header.cell_pointers}")
+
+    # Verify all records can be read back
+    for i, (expected_record, expected_len) in enumerate([(record1, len1), (record2, len2), (record3, len3)]):
+        cell_pos = header.cell_pointers[i]
+        read_record = deserialize(page[cell_pos:cell_pos + expected_len], schema)
+
+        assert read_record.values["id"] == expected_record.values["id"], f"Record {i} id mismatch"
+        assert read_record.values["data"] == expected_record.values["data"], f"Record {i} data mismatch"
+        print(f"Record {i} verified: {read_record.values}")
+
+    # Clean up
+    pager.close()
+    os.remove(test_db_file)
+
+    print("All insert tests passed!")
+
+
 test_file_header()
 test_page_header()
 test_pager()
+test_insert()
