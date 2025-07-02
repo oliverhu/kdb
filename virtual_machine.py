@@ -21,7 +21,8 @@ class VirtualMachine(Visitor):
         stmt.accept(self)
 
     def visit_select_stmt(self, stmt: SelectStmt):
-        pass
+        from_clause = stmt.from_clause
+        self.materialize(from_clause.source.source)
 
     def visit_from_clause(self, stmt: FromClause):
         pass
@@ -172,3 +173,13 @@ class VirtualMachine(Visitor):
 
     def filter_records(self, where_clause: WhereClause, source: Source):
         pass
+
+    def materialize(self, source: SingleSource):
+        table_name = source.table_name
+        schema = self.state_manager.schemas[table_name]
+        assert schema in self.state_manager.schemas, f"Table {table_name} not found"
+        cursor = self.state_manager.get_table_cursor(table_name)
+
+        table = Table(self.state_manager.pager)
+        table.db_open(table_name)
+        return table

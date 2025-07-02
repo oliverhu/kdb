@@ -10,11 +10,12 @@ TABLE_MAX_PAGES = 100
 
 
 class DatabaseFileHeader:
-    def __init__(self, version: str, next_free_page: int, has_free_list: bool, schemas: dict = None):
+    def __init__(self, version: str, next_free_page: int, has_free_list: bool, schemas: dict = None, table_pages: dict = None):
         self.version = version
         self.next_free_page = next_free_page
         self.has_free_list = has_free_list
         self.schemas = schemas or {}  # table_name -> BasicSchema
+        self.table_pages = table_pages or {}  # table_name -> page_number
 
     def from_header(header: bytes):
         version = header[:6].decode("utf-8")
@@ -43,6 +44,12 @@ class DatabaseFileHeader:
             offset += 4
             schemas_buffer[offset:offset+len(table_name_bytes)] = table_name_bytes
             offset += len(table_name_bytes)
+
+            # Write page number
+            page_num = self.table_pages.get(table_name, 0)
+            page_num_bytes = Integer.serialize(page_num)
+            schemas_buffer[offset:offset+4] = page_num_bytes
+            offset += 4
 
             # Write schema
             schema_bytes = schema.serialize()
@@ -73,6 +80,11 @@ class DatabaseFileHeader:
             table_name = schemas_buffer[offset:offset+table_name_length].decode("utf-8")
             offset += table_name_length
 
+            # Read page number
+            page_num = Integer.deserialize(schemas_buffer[offset:offset+4])
+            offset += 4
+            self.table_pages[table_name] = page_num
+
             # Read schema
             schema_length = Integer.deserialize(schemas_buffer[offset:offset+4])
             offset += 4
@@ -82,9 +94,11 @@ class DatabaseFileHeader:
 
             self.schemas[table_name] = schema
 
-    def add_schema(self, table_name: str, schema: BasicSchema):
-        """Add a schema to the header"""
+    def add_schema(self, table_name: str, schema: BasicSchema, page_num: int = None):
+        """Add a schema to the header with optional page number"""
         self.schemas[table_name] = schema
+        if page_num is not None:
+            self.table_pages[table_name] = page_num
 
     def get_schema(self, table_name: str):
         """Get a schema by table name"""
@@ -127,7 +141,12 @@ class Pager:
             self.file_ptr = open(file_name, "rb+")
             # initialize from the file
             self.file_length = os.path.getsize(file_name)
-            self.num_pages = self.file_length // PAGE_SIZE
+            # Calculate number of data pages (excluding header space)
+            header_space = 100 + 4096  # file header + schemas header
+            if self.file_length > header_space:
+                self.num_pages = (self.file_length - header_space) // PAGE_SIZE
+            else:
+                self.num_pages = 0
 
         self.pages = [None] * TABLE_MAX_PAGES
 

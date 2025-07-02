@@ -2,7 +2,8 @@
 
 import os
 from sqlite3 import Cursor
-from pager import Pager
+from pager import Pager, PageHeader, PAGE_SIZE
+from record import Record
 from schema.basic_schema import BasicSchema
 from schema.basic_schema import Column, Integer, Text
 
@@ -15,13 +16,34 @@ class StateManager:
         self.pager = Pager(file_path)
         # Load schemas from file header
         self.schemas = self.pager.file_header.schemas.copy()
+        # Load table page mappings from file header
+        self.table_pages = self.pager.file_header.table_pages.copy()
 
     def register_table(self, table_name: str, schema: BasicSchema):
+        # Get a new page for this table
+        page_num = self.pager.get_free_page()
+
+        # Initialize the new page with a valid PageHeader
+        header = PageHeader(
+            node_type="L",  # Leaf node
+            is_root=True,
+            parent_page_num=0,  # Use 0 for root page (no parent)
+            num_cells=0,
+            allocation_pointer=PAGE_SIZE,  # No cells yet, so allocation pointer at end
+            cell_pointers=[]
+        )
+        page = bytearray(PAGE_SIZE)
+        header_bytes = header.to_header()
+        page[:len(header_bytes)] = header_bytes
+        self.pager.write_page(page_num, bytes(page))
+
         self.schemas[table_name] = schema
+        self.table_pages[table_name] = page_num
+
         # Update file header
-        self.pager.file_header.add_schema(table_name, schema)
+        self.pager.file_header.add_schema(table_name, schema, page_num)
         self.pager.file_header.write_schemas_header(self.pager.file_ptr)
-        print(f"Registered schema for table {table_name}: {schema}")
+        print(f"Registered schema for table {table_name}: {schema} on page {page_num}")
 
     def get_table_schema(self, table_name: str):
         return self.schemas[table_name]
@@ -32,7 +54,27 @@ class StateManager:
     def save_schemas(self):
         """Save all schemas to the file header"""
         self.pager.file_header.schemas = self.schemas.copy()
+        self.pager.file_header.table_pages = self.table_pages.copy()
         self.pager.file_header.write_schemas_header(self.pager.file_ptr)
+
+    def insert(self, table_name: str, record: Record):
+        """Insert a record into the specified table"""
+        if table_name not in self.schemas:
+            raise ValueError(f"Table '{table_name}' not found")
+
+        if table_name not in self.table_pages:
+            raise ValueError(f"No page number found for table '{table_name}'")
+
+        page_num = self.table_pages[table_name]
+        schema = self.schemas[table_name]
+
+        # Ensure the record has the correct schema
+        if record.schema != schema:
+            record.schema = schema
+
+        # Insert the record into the page
+        self.pager.insert(record, page_num)
+        print(f"Inserted record into table '{table_name}' on page {page_num}")
 
 
 
@@ -58,9 +100,9 @@ def test_schema_header():
         Column("price", Integer(), False)
     ])
 
-    # Add schemas to file header
-    pager.file_header.add_schema("users", users_schema)
-    pager.file_header.add_schema("products", products_schema)
+    # Add schemas to file header with page numbers
+    pager.file_header.add_schema("users", users_schema, 0)
+    pager.file_header.add_schema("products", products_schema, 1)
 
     # Write schemas to file
     pager.file_header.write_schemas_header(pager.file_ptr)
@@ -76,6 +118,12 @@ def test_schema_header():
     # Verify schemas were loaded correctly
     assert "users" in pager2.file_header.schemas, "Users schema not found"
     assert "products" in pager2.file_header.schemas, "Products schema not found"
+
+    # Verify page numbers were loaded correctly
+    assert "users" in pager2.file_header.table_pages, "Users page number not found"
+    assert "products" in pager2.file_header.table_pages, "Products page number not found"
+    assert pager2.file_header.table_pages["users"] == 0, "Users page number mismatch"
+    assert pager2.file_header.table_pages["products"] == 1, "Products page number mismatch"
 
     # Verify schema contents
     loaded_users = pager2.file_header.schemas["users"]
@@ -99,6 +147,12 @@ def test_schema_header():
     assert "users" in state_manager.schemas, "Users schema not loaded in StateManager"
     assert "products" in state_manager.schemas, "Products schema not loaded in StateManager"
 
+    # Verify page numbers are loaded in StateManager
+    assert "users" in state_manager.table_pages, "Users page number not loaded in StateManager"
+    assert "products" in state_manager.table_pages, "Products page number not loaded in StateManager"
+    assert state_manager.table_pages["users"] == 0, "Users page number mismatch in StateManager"
+    assert state_manager.table_pages["products"] == 1, "Products page number mismatch in StateManager"
+
     # Test adding a new schema through StateManager
     orders_schema = BasicSchema("orders", [
         Column("order_id", Integer(), True),
@@ -110,6 +164,9 @@ def test_schema_header():
 
     # Verify the new schema was saved
     assert "orders" in state_manager.schemas, "Orders schema not added to StateManager"
+    assert "orders" in state_manager.table_pages, "Orders page number not added to StateManager"
+    # The orders table should get page number 0 since it's the first data page after headers
+    assert state_manager.table_pages["orders"] == 0, "Orders page number should be 0"
 
     # Clean up
     pager2.close()
@@ -117,5 +174,51 @@ def test_schema_header():
 
     print("All schema header tests passed!")
 
+
+def test_insert_functionality():
+    """Test the insert functionality of StateManager"""
+    test_db_file = "test_insert.db"
+    if os.path.exists(test_db_file):
+        os.remove(test_db_file)
+
+    # Create StateManager
+    state_manager = StateManager(test_db_file)
+
+    # Create a test schema
+    users_schema = BasicSchema("users", [
+        Column("id", Integer(), True),
+        Column("username", Text(), False),
+        Column("email", Text(), False)
+    ])
+
+    # Register the table
+    state_manager.register_table("users", users_schema)
+
+    # Create test records
+    record1 = Record(values={"id": 1, "username": "john_doe", "email": "john@example.com"}, schema=users_schema)
+    record2 = Record(values={"id": 2, "username": "jane_smith", "email": "jane@example.com"}, schema=users_schema)
+
+    # Insert records
+    state_manager.insert("users", record1)
+    state_manager.insert("users", record2)
+
+    # Test inserting into non-existent table
+    try:
+        state_manager.insert("nonexistent", record1)
+        assert False, "Should have raised ValueError for non-existent table"
+    except ValueError as e:
+        assert "not found" in str(e), f"Unexpected error message: {e}"
+
+    # Verify the page number was assigned correctly
+    assert state_manager.table_pages["users"] == 0, "Users table should be on page 0"
+
+    # Clean up
+    state_manager.pager.close()
+    os.remove(test_db_file)
+
+    print("All insert functionality tests passed!")
+
+
 if __name__ == "__main__":
     test_schema_header()
+    test_insert_functionality()

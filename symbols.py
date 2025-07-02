@@ -15,8 +15,12 @@ class SelectClause(Symbol):
     selectables: List[Any]
 
 @dataclass
-class FromClause(Symbol):
+class FromSource(Symbol):
     source: Any
+
+@dataclass
+class FromClause(Symbol):
+    source: FromSource
 
 
 @dataclass

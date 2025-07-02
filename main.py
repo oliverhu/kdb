@@ -108,7 +108,9 @@ class ToAst(Transformer):
         return SelectClause(args)
 
     def from_clause(self, args):
-        return FromClause(args)
+        fc = FromClause(args)
+        fc.source = FromSource(fc.source)
+        return fc
 
     def selectable(self, args):
         return Selectable(args[0])
