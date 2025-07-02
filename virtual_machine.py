@@ -1,5 +1,5 @@
 from pager import PageHeader, Table
-from record import Record
+from record import Record, deserialize
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text, Boolean
 from state_manager import StateManager
@@ -176,16 +176,29 @@ class VirtualMachine(Visitor):
     def filter_records(self, where_clause: WhereClause, source: Source):
         pass
 
-    def materialize(self, source: Source):
-        table_name = source[0].single_source.table_name
+    def materialize(self, source):
+        # Unwrap until we get an object with 'table_name'
+        while not hasattr(source, 'table_name'):
+            if isinstance(source, list):
+                source = source[0]
+            elif hasattr(source, 'source'):
+                source = source.source
+            elif hasattr(source, 'single_source'):
+                source = source.single_source
+            else:
+                raise ValueError(f"Cannot find table_name in source: {source}")
+        table_name = source.table_name
         schema = self.state_manager.schemas[table_name]
         assert table_name in self.state_manager.schemas, f"Table {table_name} not found"
-        pager_num = self.state_manager.table_pages[table_name]
-        page = self.state_manager.pager.get_page(pager_num)
+        page_num = self.state_manager.table_pages[table_name]
+        page = self.state_manager.pager.get_page(page_num)
         page_header = PageHeader.from_header(page)
         records = []
-        for cell_num in page_header.cell_pointers:
-            cell = self.state_manager.pager.get_page(cell_num)
-            record = Record.from_bytes(cell, schema)
-            records.append(record)
+        for cell_pointer in page_header.cell_pointers:
+            try:
+                record = deserialize(page[cell_pointer:], schema)
+                records.append(record)
+            except Exception as e:
+                print(f"Error deserializing record at offset {cell_pointer}: {e}")
+                continue
         return records

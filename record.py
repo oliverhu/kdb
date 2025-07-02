@@ -20,6 +20,9 @@ class Record:
     def from_bytes(bytes: bytearray, schema: BasicSchema) -> "Record":
         return deserialize(bytes, schema)
 
+    def __str__(self):
+        return f"Record(values={self.values}, schema={self.schema})"
+
 
 """
 Binary format of the record:
@@ -63,7 +66,8 @@ def deserialize(serialized_value: bytearray, schema: BasicSchema) -> Record:
     for i, column in enumerate(schema.columns):
         offset = data_header[i * Integer.fixed_length:i * Integer.fixed_length + Integer.fixed_length]
         size = Integer.deserialize(offset)
-        values[column.name] = column.datatype.deserialize(data[ptr:ptr + size])
+        key_name = column.name.name if hasattr(column.name, 'name') else str(column.name)
+        values[key_name] = column.datatype.deserialize(data[ptr:ptr + size])
         ptr += size
     print("deserialized", values)
     return Record(values, schema)
