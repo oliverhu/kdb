@@ -1,7 +1,6 @@
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text
 
-
 class Record:
     """
     values -> {column_name: value}
@@ -13,6 +12,13 @@ class Record:
 
     def get(self, colume_name: str):
         return self.values[colume_name]
+
+    def to_bytes(self) -> bytearray:
+        return serialize(self)
+
+    @staticmethod
+    def from_bytes(bytes: bytearray, schema: BasicSchema) -> "Record":
+        return deserialize(bytes, schema)
 
 
 """

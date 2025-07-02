@@ -22,7 +22,9 @@ class VirtualMachine(Visitor):
 
     def visit_select_stmt(self, stmt: SelectStmt):
         from_clause = stmt.from_clause
-        self.materialize(from_clause.source.source)
+        records = self.materialize(from_clause.source.source)
+        for record in records:
+            print(record)
 
     def visit_from_clause(self, stmt: FromClause):
         pass
@@ -174,16 +176,16 @@ class VirtualMachine(Visitor):
     def filter_records(self, where_clause: WhereClause, source: Source):
         pass
 
-    def materialize(self, source: SingleSource):
-        table_name = source.table_name
+    def materialize(self, source: Source):
+        table_name = source[0].single_source.table_name
         schema = self.state_manager.schemas[table_name]
-        assert schema in self.state_manager.schemas, f"Table {table_name} not found"
+        assert table_name in self.state_manager.schemas, f"Table {table_name} not found"
         pager_num = self.state_manager.table_pages[table_name]
         page = self.state_manager.pager.get_page(pager_num)
         page_header = PageHeader.from_header(page)
         records = []
         for cell_num in page_header.cell_pointers:
             cell = self.state_manager.pager.get_page(cell_num)
-            record = Record.from_bytes(cell)
+            record = Record.from_bytes(cell, schema)
             records.append(record)
         return records

@@ -129,14 +129,17 @@ class LimitClause(Symbol):
     limit: Any
     offset: Optional[Any] = None
 
-@dataclass
-class Source(Symbol):
-    value: Any
 
 @dataclass
 class SingleSource(Symbol):
     table_name: str
     alias: Optional[str] = None
+
+
+@dataclass
+class Source(Symbol):
+    single_source: List[SingleSource]
+
 
 @dataclass
 class Joining(Symbol):
