@@ -1,4 +1,4 @@
-from pager import Table
+from pager import PageHeader, Table
 from record import Record
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text, Boolean
@@ -154,7 +154,7 @@ class VirtualMachine(Visitor):
         row_dict = dict(zip(column_names, values))
         record = Record(values=row_dict, schema=schema)
         # For now, insert into page 1
-        self.state_manager.pager.insert(record, 1)
+        self.state_manager.insert(table_name, record)
 
     def visit_delete_stmt(self, stmt: DeleteStmt):
         pass
@@ -178,8 +178,12 @@ class VirtualMachine(Visitor):
         table_name = source.table_name
         schema = self.state_manager.schemas[table_name]
         assert schema in self.state_manager.schemas, f"Table {table_name} not found"
-        cursor = self.state_manager.get_table_cursor(table_name)
-
-        table = Table(self.state_manager.pager)
-        table.db_open(table_name)
-        return table
+        pager_num = self.state_manager.table_pages[table_name]
+        page = self.state_manager.pager.get_page(pager_num)
+        page_header = PageHeader.from_header(page)
+        records = []
+        for cell_num in page_header.cell_pointers:
+            cell = self.state_manager.pager.get_page(cell_num)
+            record = Record.from_bytes(cell)
+            records.append(record)
+        return records
