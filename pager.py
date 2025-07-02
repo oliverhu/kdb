@@ -10,10 +10,11 @@ TABLE_MAX_PAGES = 100
 
 
 class DatabaseFileHeader:
-    def __init__(self, version: str, next_free_page: int, has_free_list: bool):
+    def __init__(self, version: str, next_free_page: int, has_free_list: bool, schemas: dict = None):
         self.version = version
         self.next_free_page = next_free_page
         self.has_free_list = has_free_list
+        self.schemas = schemas or {}  # table_name -> BasicSchema
 
     def from_header(header: bytes):
         version = header[:6].decode("utf-8")
@@ -23,6 +24,71 @@ class DatabaseFileHeader:
 
     def to_header(self):
         return self.version.encode("utf-8") + Integer.serialize(self.next_free_page) + Integer.serialize(1 if self.has_free_list else 0)
+
+    def write_schemas_header(self, file_ptr):
+        """Write the 4K schemas header after the main file header"""
+        # Create a 4K buffer
+        schemas_buffer = bytearray(4096)
+
+        # Write number of schemas
+        num_schemas = Integer.serialize(len(self.schemas))
+        schemas_buffer[:4] = num_schemas
+
+        offset = 4
+        for table_name, schema in self.schemas.items():
+            # Write table name
+            table_name_bytes = table_name.encode("utf-8")
+            table_name_length = Integer.serialize(len(table_name_bytes))
+            schemas_buffer[offset:offset+4] = table_name_length
+            offset += 4
+            schemas_buffer[offset:offset+len(table_name_bytes)] = table_name_bytes
+            offset += len(table_name_bytes)
+
+            # Write schema
+            schema_bytes = schema.serialize()
+            schema_length = Integer.serialize(len(schema_bytes))
+            schemas_buffer[offset:offset+4] = schema_length
+            offset += 4
+            schemas_buffer[offset:offset+len(schema_bytes)] = schema_bytes
+            offset += len(schema_bytes)
+
+        # Write to file
+        file_ptr.seek(100)  # After the main file header
+        file_ptr.write(schemas_buffer)
+        file_ptr.flush()
+
+    def read_schemas_header(self, file_ptr):
+        """Read the 4K schemas header and populate self.schemas"""
+        file_ptr.seek(100)  # After the main file header
+        schemas_buffer = file_ptr.read(4096)
+
+        # Read number of schemas
+        num_schemas = Integer.deserialize(schemas_buffer[:4])
+
+        offset = 4
+        for _ in range(num_schemas):
+            # Read table name
+            table_name_length = Integer.deserialize(schemas_buffer[offset:offset+4])
+            offset += 4
+            table_name = schemas_buffer[offset:offset+table_name_length].decode("utf-8")
+            offset += table_name_length
+
+            # Read schema
+            schema_length = Integer.deserialize(schemas_buffer[offset:offset+4])
+            offset += 4
+            schema_data = schemas_buffer[offset:offset+schema_length]
+            schema, _ = BasicSchema.deserialize(schema_data)
+            offset += schema_length
+
+            self.schemas[table_name] = schema
+
+    def add_schema(self, table_name: str, schema: BasicSchema):
+        """Add a schema to the header"""
+        self.schemas[table_name] = schema
+
+    def get_schema(self, table_name: str):
+        """Get a schema by table name"""
+        return self.schemas.get(table_name)
 
 
 class PageHeader:
@@ -81,7 +147,7 @@ class Pager:
             return bytearray(self.page_size)
         if self.pages[page_num] is None:
             if page_num < self.num_pages:
-                self.file_ptr.seek(100 + page_num * PAGE_SIZE)
+                self.file_ptr.seek(4196 + page_num * PAGE_SIZE)  # 100 + 4096 for schemas header
                 self.pages[page_num] = self.file_ptr.read(PAGE_SIZE)
             else:
                 self.pages[page_num] = bytearray(PAGE_SIZE)
@@ -100,7 +166,7 @@ class Pager:
         if self.pages[page_num] is None:
             print(f"Tried to flush page {page_num} but it is None")
             return
-        self.file_ptr.seek(100 + page_num * PAGE_SIZE)
+        self.file_ptr.seek(4196 + page_num * PAGE_SIZE)  # 100 + 4096 for schemas header
         self.file_ptr.write(self.pages[page_num])
         self.file_ptr.flush() # write to disk
 
@@ -110,14 +176,21 @@ class Pager:
     def init_file_header(self):
         self.file_ptr.seek(0)
         file_header = DatabaseFileHeader(version="kdb000", next_free_page=self.num_pages, has_free_list=False)
-        file_header = file_header.to_header()
-        self.file_ptr.write(file_header)
+        file_header_bytes = file_header.to_header()
+        self.file_ptr.write(file_header_bytes)
+
+        # Write empty schemas header
+        file_header.write_schemas_header(self.file_ptr)
         self.file_ptr.flush()
 
     def read_file_header(self):
         self.file_ptr.seek(0)
-        file_header = self.file_ptr.read(100)
-        return DatabaseFileHeader.from_header(file_header)
+        file_header_bytes = self.file_ptr.read(100)
+        file_header = DatabaseFileHeader.from_header(file_header_bytes)
+
+        # Read schemas header
+        file_header.read_schemas_header(self.file_ptr)
+        return file_header
 
     def set_free_page_header(self, page_num: int):
         self.file_ptr.seek(100)
@@ -364,7 +437,10 @@ def test_insert():
     print("All insert tests passed!")
 
 
-test_file_header()
-test_page_header()
-test_pager()
-test_insert()
+
+if __name__ == "__main__":
+    test_file_header()
+    test_page_header()
+    test_pager()
+    test_insert()
+

@@ -117,7 +117,17 @@ class ToAst(Transformer):
         return Expr(args[0])
 
     def literal(self, args):
-        return Literal(args)
+        val = args[0]
+        if hasattr(val, 'value'):
+            val = val.value
+
+        # Convert string numbers to int
+        if isinstance(val, str) and val.isdigit():
+            return Literal(int(val))
+        # Remove quotes from strings
+        elif isinstance(val, str) and val.startswith("'") and val.endswith("'"):
+            return Literal(val[1:-1])
+        return Literal(val)
 
     def condition(self, args):
         return Condition(args)
@@ -224,7 +234,9 @@ class ToAst(Transformer):
     def column_def(self, args):
         primary_key = len(args) > 2 and args[2] == "primary_key"
         not_null = len(args) > 3 and args[3] == "not_null"
-        return ColumnDef(args[0], args[1], primary_key, not_null)
+        # Extract the column name string from the ColumnName object
+        column_name = args[0].name if hasattr(args[0], 'name') else str(args[0])
+        return ColumnDef(column_name, args[1], primary_key, not_null)
 
     def drop_stmt(self, args):
         return DropStmt(args[0])
@@ -330,15 +342,6 @@ class ToAst(Transformer):
 
 
 def main():
-    # Run some tests
-    pager = Pager("playground/pg.db")
-    pager.init_pages()
-    page1 = pager.get_page(1)
-    page0 = pager.get_page(0)
-    print(page1.rstrip(b'\x00'))
-    assert page0.rstrip(b'\x00') == b"Hello!"
-    assert page1.rstrip(b'\x00') == b"World!"
-    # print(Frontend().parser.parse("select 1").pretty())
     repl("playground/pg.db")
 
 if __name__ == "__main__":

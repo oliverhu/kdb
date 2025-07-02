@@ -1,4 +1,3 @@
-
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text
 
@@ -64,9 +63,12 @@ def deserialize(serialized_value: bytearray, schema: BasicSchema) -> Record:
     return Record(values, schema)
 
 
-# quick test
-schema = BasicSchema("users", [Column("id", Integer(), True), Column("name", Text(), False)])
-record = Record(values={"id": 3, "name": "John"}, schema=schema)
-serialized_value = serialize(record)
-deserialized_record = deserialize(serialized_value, schema)
-print(deserialized_record.values)
+if __name__ == "__main__":
+    schema = BasicSchema("users", [Column("id", Integer(), True), Column("name", Text(), False)])
+    record = Record(values={"id": 3, "name": "John"}, schema=schema)
+    print(record)
+    serialized = serialize(record)
+    print("serialized", serialized)
+    deserialized = deserialize(serialized, schema)
+    print("deserialized", deserialized.values)
+    print(deserialized.values)

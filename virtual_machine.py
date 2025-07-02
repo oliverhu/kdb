@@ -1,6 +1,7 @@
 from pager import Table
 from record import Record
-from schema.basic_schema import BasicSchema
+from schema.basic_schema import BasicSchema, Column
+from schema.datatypes import Integer, Text, Boolean
 from state_manager import StateManager
 from visitor import Visitor
 from symbols import *
@@ -114,8 +115,23 @@ class VirtualMachine(Visitor):
         pass
 
     def visit_create_stmt(self, stmt: CreateStmt):
-        schema = BasicSchema(stmt.table_name,
-                             [ColumnDef(col.column_name, col.datatype, col.primary_key, col.not_null) for col in stmt.column_defs])
+        # Convert ColumnDef objects to Column objects
+        columns = []
+        for col_def in stmt.column_defs:
+            # Convert datatype string to actual datatype object
+            if col_def.datatype.lower() == "integer":
+                datatype = Integer()
+            elif col_def.datatype.lower() == "text":
+                datatype = Text()
+            elif col_def.datatype.lower() == "boolean":
+                datatype = Boolean()
+            else:
+                raise ValueError(f"Unsupported datatype: {col_def.datatype}")
+
+            column = Column(col_def.column_name, datatype, col_def.primary_key)
+            columns.append(column)
+
+        schema = BasicSchema(stmt.table_name, columns)
         table_name = stmt.table_name
         # TODO: table/schema is only stored in memory for now :/
         self.state_manager.register_table(table_name, schema)
@@ -130,8 +146,14 @@ class VirtualMachine(Visitor):
     def visit_insert_stmt(self, stmt: InsertStmt):
         table_name = stmt.table_name
         schema = self.state_manager.schemas[table_name]
-        record = Record(values=stmt.values, schema=schema)
-        self.state_manager.pager.write_record(record)
+        # Extract string names from ColumnName objects
+        column_names = [col.name if hasattr(col, 'name') else str(col) for col in stmt.columns]
+        # Extract raw values from Literal objects
+        values = [v.value if hasattr(v, 'value') else v for v in stmt.values]
+        row_dict = dict(zip(column_names, values))
+        record = Record(values=row_dict, schema=schema)
+        # For now, insert into page 1
+        self.state_manager.pager.insert(record, 1)
 
     def visit_delete_stmt(self, stmt: DeleteStmt):
         pass
@@ -146,4 +168,7 @@ class VirtualMachine(Visitor):
         pass
 
     def visit_nested(self, stmt: Nested):
+        pass
+
+    def filter_records(self, where_clause: WhereClause, source: Source):
         pass
