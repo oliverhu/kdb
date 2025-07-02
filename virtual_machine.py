@@ -24,7 +24,7 @@ class VirtualMachine(Visitor):
         from_clause = stmt.from_clause
         records = self.materialize(from_clause.source.source)
         for record in records:
-            print(record)
+            print(record.values)
 
     def visit_from_clause(self, stmt: FromClause):
         pass

@@ -84,9 +84,6 @@ def repl(db_file: str):
     #     tree = transformer.transform(parse_tree)
     #     vm.run(tree)
 
-        # table.execute(command)
-
-
 class SymbolicDataType(Enum):
     Integer = auto()
     Text = auto()

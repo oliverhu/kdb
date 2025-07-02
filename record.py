@@ -46,11 +46,11 @@ def serialize(record: Record) -> bytearray:
 
     key_size = Integer.serialize(len(key))
     data_size = Integer.serialize(len(data_header) + len(data))
-    print("serialized", key_size, data_size, key, data_header, data)
+    # print("serialized", key_size, data_size, key, data_header, data)
     return key_size + data_size + key + data_header + data
 
 def deserialize(serialized_value: bytearray, schema: BasicSchema) -> Record:
-    print("deserializing", schema)
+    # print("deserializing", schema)
     values = {}
     ptr = 0
     key_size = Integer.deserialize(serialized_value[ptr:4])
@@ -69,16 +69,16 @@ def deserialize(serialized_value: bytearray, schema: BasicSchema) -> Record:
         key_name = column.name.name if hasattr(column.name, 'name') else str(column.name)
         values[key_name] = column.datatype.deserialize(data[ptr:ptr + size])
         ptr += size
-    print("deserialized", values)
+    # print("deserialized", values)
     return Record(values, schema)
 
 
 if __name__ == "__main__":
     schema = BasicSchema("users", [Column("id", Integer(), True), Column("name", Text(), False)])
     record = Record(values={"id": 3, "name": "John"}, schema=schema)
-    print(record)
+    # print(record)
     serialized = serialize(record)
-    print("serialized", serialized)
+    # print("serialized", serialized)
     deserialized = deserialize(serialized, schema)
-    print("deserialized", deserialized.values)
+    # print("deserialized", deserialized.values)
     print(deserialized.values)
