@@ -25,6 +25,7 @@ class VirtualMachine(Visitor):
         records = self.materialize(from_clause.source.source)
         for record in records:
             print(record.values)
+        where_clause = from_clause.where_clause
 
     def visit_from_clause(self, stmt: FromClause):
         pass
@@ -202,3 +203,10 @@ class VirtualMachine(Visitor):
                 print(f"Error deserializing record at offset {cell_pointer}: {e}")
                 continue
         return records
+
+    def filter_records(self, where_clause: WhereClause, records: List[Record]):
+        ret_records = []
+        for record in records:
+            if where_clause.condition.evaluate(record):
+                ret_records.append(record)
+        return ret_records

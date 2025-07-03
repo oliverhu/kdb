@@ -18,9 +18,16 @@ class SelectClause(Symbol):
 class FromSource(Symbol):
     source: Any
 
+
+@dataclass
+class WhereClause(Symbol):
+    condition: Any
+
+
 @dataclass
 class FromClause(Symbol):
     source: FromSource
+    where_clause: Optional[WhereClause] = None
 
 
 @dataclass
@@ -107,10 +114,6 @@ class Identifier(Symbol):
 @dataclass
 class ColumnName(Symbol):
     name: str
-
-@dataclass
-class WhereClause(Symbol):
-    condition: Any
 
 @dataclass
 class GroupByClause(Symbol):
