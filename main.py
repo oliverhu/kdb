@@ -66,7 +66,8 @@ def repl(db_file: str):
     commands = [
         "create table users (id integer primary key, username text, email text)",
         "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
-        "select username, email from users",
+        "insert into users (id, username, email) values (2, 'Jane Musk', 'jane.musk@example.com')",
+        "select username, email from users where id = 1",
     ]
     for command in commands:
         print(frontend.parser.parse(command).pretty())
