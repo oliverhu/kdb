@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+from generator import ColumnNameGenerator, LiteralGenerator
 from interpreter import Interpreter
 from pager import PageHeader, Table
 from record import Record, deserialize
@@ -26,16 +28,22 @@ class VirtualMachine(Visitor):
         from_clause = stmt.from_clause
         records = self.materialize(from_clause.source.source)
         where_clause = from_clause.where_clause
+        generators = self.generate_from_selectables(stmt.select_clause.selectables)
         if where_clause:
             records = self.filter_records(where_clause, records)
+        values = []
         for record in records:
-            print(record.values)
+            value_list = []
+            for generator in generators:
+                value_list.append(generator.get_value(record))
+            values.append(value_list)
+        print(values)
 
     def visit_select_clause(self, stmt: SelectClause):
         pass
 
     def visit_selectable(self, stmt: Selectable):
-        pass
+        print("selectable", stmt)
 
     def visit_program(self, stmt: Program):
         for stmt in stmt.statements:
@@ -212,3 +220,15 @@ class VirtualMachine(Visitor):
             if self.interpreter.evaluate(where_clause.condition):
                 ret_records.append(record)
         return ret_records
+
+    def generate_from_selectables(self, selectables: List[Selectable]):
+        generators = []
+        for selectable in selectables:
+            selectable = selectable.value
+            if isinstance(selectable, ColumnName):
+                generators.append(ColumnNameGenerator(selectable.name))
+            elif isinstance(selectable, Literal):
+                generators.append(LiteralGenerator(selectable.value))
+            else:
+                raise ValueError(f"Unsupported selectable: {selectable}")
+        return generators

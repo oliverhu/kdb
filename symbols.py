@@ -12,8 +12,14 @@ class Symbol(ast_utils.Ast):
 
 
 @dataclass
+class Selectable(Symbol):
+    value: Any
+
+
+@dataclass
 class SelectClause(Symbol):
-    selectables: List[Any]
+    selectables: List[Selectable]
+
 
 @dataclass
 class FromSource(Symbol):
@@ -55,9 +61,6 @@ class SelectStmt(Symbol):
     select_clause: SelectClause
     from_clause: FromClause
 
-@dataclass
-class Selectable(Symbol):
-    value: Any
 
 @dataclass
 class Program(Symbol):
@@ -257,7 +260,8 @@ class ToAst(Transformer):
         return fc
 
     def selectable(self, args):
-        return Selectable(args[0])
+        if len(args) == 1:
+            return args[0]
 
     def expr(self, args):
         return Expr(args[0])
