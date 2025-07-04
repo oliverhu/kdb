@@ -36,6 +36,12 @@ class ArithmeticOp(Enum):
     SUB = auto()
     MUL = auto()
     DIV = auto()
+    EQ = auto()
+    NE = auto()
+    GT = auto()
+    LT = auto()
+    GE = auto()
+    LE = auto()
 
 
 @dataclass
@@ -87,7 +93,7 @@ class NotClause(Symbol):
 @dataclass
 class Comparison(Symbol):
     left: Any
-    operator: str
+    operator: ArithmeticOp
     right: Any
 
 @dataclass
@@ -294,25 +300,25 @@ class ToAst(Transformer):
             return Comparison(args[0], args[1], args[2])
 
     def predicate(self, args):
-        return Predicate(args)
+        if len(args) == 1:
+            return args[0]
+        else:
+            return Comparison(args[0], args[1], args[2])
 
     def term(self, args):
         if len(args) == 1:
-            return Term(args[0], None, None)
+            return args[0]
         else:
-            return Term(args[0], args[1], args[2])
+            return BinaryOp(args[1], args[0], args[2])
 
     def factor(self, args):
         if len(args) == 1:
-            return Factor(args[0], None, None)
+            return args[0]
         else:
-            return Factor(args[0], args[1], args[2])
+            return BinaryOp(args[1], args[0], args[2])
 
-    def unary_op(self, args):
-        return UnaryOp(args)
-
-    def binary_op(self, args):
-        return BinaryOp(args[0], args[1], args[2])
+    def unary(self, args):
+        return args[0]
 
     def primary(self, args):
         return Primary(args)
@@ -477,3 +483,31 @@ class ToAst(Transformer):
 
     def value_list(self, args):
         return args
+
+    def EQUAL(self, args):
+        return ArithmeticOp.EQ
+
+    def NOT_EQUAL(self, args):
+        return ArithmeticOp.NE
+
+    def GREATER_THAN(self, args):
+        return ArithmeticOp.GT
+
+    def LESS_THAN(self, args):
+        return ArithmeticOp.LT
+
+    def GREATER_THAN_OR_EQUAL(self, args):
+        return ArithmeticOp.GE
+
+    def LESS_THAN_OR_EQUAL(self, args):
+        return ArithmeticOp.LE
+
+    def ADD(self, args):
+        return ArithmeticOp.ADD
+
+    def SCOPED_IDENTIFIER(self, args):
+        print("args", args)
+        return str(args)
+
+    def IDENTIFIER(self, args):
+        return str(args)

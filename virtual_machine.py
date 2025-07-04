@@ -131,6 +131,7 @@ class VirtualMachine(Visitor):
             elif col_def.datatype.lower() == "boolean":
                 datatype = Boolean()
             else:
+                print("stmt", stmt)
                 raise ValueError(f"Unsupported datatype: {col_def.datatype}")
 
             column = Column(col_def.column_name, datatype, col_def.primary_key)
