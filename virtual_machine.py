@@ -22,13 +22,14 @@ class VirtualMachine(Visitor):
 
     def visit_select_stmt(self, stmt: SelectStmt):
         from_clause = stmt.from_clause
+        print("from clause", from_clause)
         records = self.materialize(from_clause.source.source)
+        where_clause = from_clause.where_clause
+        if where_clause:
+            print("where clause", where_clause)
+            records = self.filter_records(where_clause, records)
         for record in records:
             print(record.values)
-        where_clause = from_clause.where_clause
-
-    def visit_from_clause(self, stmt: FromClause):
-        pass
 
     def visit_select_clause(self, stmt: SelectClause):
         pass
@@ -206,7 +207,7 @@ class VirtualMachine(Visitor):
 
     def filter_records(self, where_clause: WhereClause, records: List[Record]):
         ret_records = []
-        for record in records:
-            if where_clause.condition.evaluate(record):
-                ret_records.append(record)
+        # for record in records:
+        #     if where_clause.condition.evaluate(record):
+        #         ret_records.append(record)
         return ret_records

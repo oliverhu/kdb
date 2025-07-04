@@ -1,12 +1,17 @@
 # Interpreter evalautes the expressions, currently used for where clause
 
 from typing import Any
+from record import Record
 from symbols import *
 from visitor import Visitor
 
 class Interpreter(Visitor):
-    def __init__(self):
-        pass
+
+    def __init__(self, record: Record = None):
+        self.record = record
+
+    def set_record(self, record: Record):
+        self.record = record
 
     def evaluate(self, expr: Expr) -> Any:
         pass
@@ -45,10 +50,10 @@ class Interpreter(Visitor):
         pass
 
     def visit_column_name(self, expr: ColumnName) -> Any:
-        pass
+        return self.record.values[expr.name]
 
     def visit_literal(self, expr: Literal) -> Any:
-        pass
+        return expr.value
 
     def visit_identifier(self, expr: Identifier) -> Any:
         pass
