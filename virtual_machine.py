@@ -1,3 +1,4 @@
+from interpreter import Interpreter
 from pager import PageHeader, Table
 from record import Record, deserialize
 from schema.basic_schema import BasicSchema, Column
@@ -13,6 +14,7 @@ class VirtualMachine(Visitor):
         self.pc = 0
         self.running = True
         self.state_manager = StateManager(file_path)
+        self.interpreter = Interpreter()
 
     def run(self,program):
         self.execute(program)
@@ -22,11 +24,9 @@ class VirtualMachine(Visitor):
 
     def visit_select_stmt(self, stmt: SelectStmt):
         from_clause = stmt.from_clause
-        print("from clause", from_clause)
         records = self.materialize(from_clause.source.source)
         where_clause = from_clause.where_clause
         if where_clause:
-            print("where clause", where_clause)
             records = self.filter_records(where_clause, records)
         for record in records:
             print(record.values)
@@ -131,7 +131,6 @@ class VirtualMachine(Visitor):
             elif col_def.datatype.lower() == "boolean":
                 datatype = Boolean()
             else:
-                print("stmt", stmt)
                 raise ValueError(f"Unsupported datatype: {col_def.datatype}")
 
             column = Column(col_def.column_name, datatype, col_def.primary_key)
@@ -208,7 +207,8 @@ class VirtualMachine(Visitor):
 
     def filter_records(self, where_clause: WhereClause, records: List[Record]):
         ret_records = []
-        # for record in records:
-        #     if where_clause.condition.evaluate(record):
-        #         ret_records.append(record)
+        for record in records:
+            self.interpreter.set_record(record)
+            if self.interpreter.evaluate(where_clause.condition):
+                ret_records.append(record)
         return ret_records

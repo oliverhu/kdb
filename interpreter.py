@@ -14,7 +14,7 @@ class Interpreter(Visitor):
         self.record = record
 
     def evaluate(self, expr: Expr) -> Any:
-        pass
+        return expr.accept(self)
 
     def evaluate_comparison(self, expr: Comparison) -> Any:
         pass
@@ -32,16 +32,30 @@ class Interpreter(Visitor):
         pass
 
     def visit_comparison(self, expr: Comparison) -> Any:
-        pass
+        left = self.evaluate(expr.left)
+        right = self.evaluate(expr.right)
+        if expr.operator == ArithmeticOp.EQ:
+            return left == right
+        elif expr.operator == ArithmeticOp.NE:
+            return left != right
+        elif expr.operator == ArithmeticOp.GT:
+            return left > right
 
     def visit_term(self, expr: Term) -> Any:
         pass
 
     def visit_or_clause(self, expr: OrClause) -> Any:
-        pass
+        print("interpreter or clause", expr)
+        for and_clause in expr.and_clauses:
+            if self.evaluate(and_clause):
+                return True
+        return False
 
     def visit_and_clause(self, expr: AndClause) -> Any:
-        pass
+        for predicate in expr.predicates:
+            if not self.evaluate(predicate):
+                return False
+        return True
 
     def visit_not_clause(self, expr: NotClause) -> Any:
         pass

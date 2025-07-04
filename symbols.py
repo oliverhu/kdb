@@ -76,15 +76,15 @@ class Expr(Symbol):
 class Condition(Symbol):
     value: Any
 
-@dataclass
-class OrClause(Symbol):
-    left: Any
-    right: Any
 
 @dataclass
 class AndClause(Symbol):
-    left: Any
-    right: Any
+    predicates: List[Any]
+
+
+@dataclass
+class OrClause(Symbol):
+    and_clauses: List[AndClause]
 
 @dataclass
 class NotClause(Symbol):
@@ -276,26 +276,28 @@ class ToAst(Transformer):
         return Literal(val)
 
     def condition(self, args):
-        return Condition(args)
+        if len(args) == 1:
+            return args[0]
+        else:
+            return args
 
     def or_clause(self, args):
         if len(args) == 1:
-            return OrClause(args[0], None)
+            return args[0]
         else:
-            return OrClause(args[0], args[1])
+            return OrClause(args)
 
     def and_clause(self, args):
         if len(args) == 1:
-            return AndClause(args[0], None)
-        else:
-            return AndClause(args[0], args[1])
+            return args[0]
+        return AndClause(args)
 
     def not_clause(self, args):
         return NotClause(args)
 
     def comparison(self, args):
         if len(args) == 1:
-            return Comparison(args[0], None, None)
+            return args[0]
         else:
             return Comparison(args[0], args[1], args[2])
 
@@ -506,7 +508,6 @@ class ToAst(Transformer):
         return ArithmeticOp.ADD
 
     def SCOPED_IDENTIFIER(self, args):
-        print("args", args)
         return str(args)
 
     def IDENTIFIER(self, args):
