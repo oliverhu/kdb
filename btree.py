@@ -35,9 +35,45 @@ class NodeType(Enum):
     LEAF = 1
 
 
+class InternalNodeHeader:
+    """
+    The header of an internal node in the B-tree.
+    """
+    def __init__(self, node_type: NodeType,
+                 is_root: bool,
+                 parent_page_num: int,
+                 number_of_keys: int,
+                 right_child_page_num: int,
+                 keys: list[int],
+                 children: list[int]):
+        self.node_type = node_type
+        self.is_root = is_root
+        self.parent_page_num = parent_page_num
+        self.number_of_keys = number_of_keys
+        self.right_child_page_num = right_child_page_num
+        self.keys = keys
+        self.children = children
 
+    @staticmethod
+    def from_header(header: bytes):
+        node_type = NodeType(Integer.deserialize(header[0:4]))
+        is_root = Integer.deserialize(header[4:8]) == 1
+        parent_page_num = Integer.deserialize(header[8:12])
+        number_of_keys = Integer.deserialize(header[12:16])
+        right_child_page_num = Integer.deserialize(header[16:20])
+        keys = []
+        for i in range(number_of_keys):
+            keys.append(Integer.deserialize(header[20 + i * 4:24 + i * 4]))
+        children = []
+        children_offset = 20 + number_of_keys * 4
+        for i in range(number_of_keys + 1):
+            children.append(Integer.deserialize(header[children_offset + i * 4:children_offset + (i + 1) * 4]))
+        return InternalNodeHeader(node_type, is_root, parent_page_num, number_of_keys, right_child_page_num, keys, children)
 
-class PageHeader:
+    def to_header(self):
+        return Integer.serialize(self.node_type.value) + Integer.serialize(1 if self.is_root else 0) + Integer.serialize(self.parent_page_num) + Integer.serialize(self.number_of_keys) + Integer.serialize(self.right_child_page_num) + b"".join(Integer.serialize(key) for key in self.keys) + b"".join(Integer.serialize(child) for child in self.children)
+
+class LeafNodeHeader:
     """
     The header of a page in the B-tree.
     """
@@ -59,7 +95,7 @@ class PageHeader:
         cell_pointers = []
         for i in range(num_cells):
             cell_pointers.append(Integer.deserialize(header[20 + i * 4:24 + i * 4]))
-        return PageHeader(node_type, is_root, parent_page_num, num_cells, allocation_pointer, cell_pointers)
+        return LeafNodeHeader(node_type, is_root, parent_page_num, num_cells, allocation_pointer, cell_pointers)
 
     def to_header(self):
         return Integer.serialize(self.node_type.value) + Integer.serialize(1 if self.is_root else 0) + Integer.serialize(self.parent_page_num) + Integer.serialize(self.num_cells) + Integer.serialize(self.allocation_pointer) + b"".join(Integer.serialize(cell_pointer) for cell_pointer in self.cell_pointers)
@@ -90,7 +126,7 @@ class BTree:
         if page_num is None:
             page_num = self.root_page_num
         cell = self.pager.get_page(page_num)
-        header = PageHeader.from_header(cell)
+        header = LeafNodeHeader.from_header(cell)
         if header.node_type == NodeType.LEAF:
             return cell
         else:
@@ -115,7 +151,7 @@ class BTree:
         page = bytearray(self.pager.get_page(page_num))
 
         # Parse the page header
-        header = PageHeader.from_header(page)
+        header = LeafNodeHeader.from_header(page)
 
         # Serialize the record
         record_bytes = serialize(record)
@@ -155,7 +191,7 @@ class BTree:
 
 def test_page_header():
     # Test serialization/deserialization of page header
-    original_header = PageHeader(
+    original_header = LeafNodeHeader(
         node_type=NodeType.LEAF,  # Leaf node
         is_root=True,
         parent_page_num=0,
@@ -164,7 +200,7 @@ def test_page_header():
         cell_pointers=[200, 300, 400]
     )
     serialized = original_header.to_header()
-    deserialized = PageHeader.from_header(serialized)
+    deserialized = LeafNodeHeader.from_header(serialized)
 
     assert deserialized.node_type == original_header.node_type, "Node type mismatch"
     assert deserialized.is_root == original_header.is_root, "Is root mismatch"
@@ -174,7 +210,7 @@ def test_page_header():
     assert deserialized.cell_pointers == original_header.cell_pointers, "Cell pointers mismatch"
 
     # Test with different values
-    header2 = PageHeader(
+    header2 = LeafNodeHeader(
         node_type=NodeType.INTERNAL,  # Internal node
         is_root=False,
         parent_page_num=5,
@@ -183,7 +219,7 @@ def test_page_header():
         cell_pointers=[]
     )
     serialized2 = header2.to_header()
-    deserialized2 = PageHeader.from_header(serialized2)
+    deserialized2 = LeafNodeHeader.from_header(serialized2)
 
     assert deserialized2.node_type == header2.node_type
     assert deserialized2.is_root == header2.is_root
@@ -248,7 +284,7 @@ def test_pager():
 
     # Read page and verify records can be read back
     read_page = pager.read_page(1)
-    read_header = PageHeader.from_header(read_page)
+    read_header = LeafNodeHeader.from_header(read_page)
 
     print(f"Page header: num_cells={read_header.num_cells}, cell_pointers={read_header.cell_pointers}")
 
@@ -306,7 +342,7 @@ def test_insert():
 
     # Read the page back and verify
     page = pager.read_page(1)
-    header = PageHeader.from_header(page)
+    header = LeafNodeHeader.from_header(page)
 
     print(f"Page header: num_cells={header.num_cells}, cell_pointers={header.cell_pointers}")
 
@@ -326,9 +362,83 @@ def test_insert():
     print("All insert tests passed!")
 
 
+def test_internal_node_header():
+    # Test serialization/deserialization of internal node header
+    original_header = InternalNodeHeader(
+        node_type=NodeType.INTERNAL,
+        is_root=True,
+        parent_page_num=0,
+        number_of_keys=2,
+        right_child_page_num=5,
+        keys=[10, 20],
+        children=[1, 3, 6]
+    )
+    print(f"Original header: keys={original_header.keys}, children={original_header.children}")
+    serialized = original_header.to_header()
+    print(f"Serialized length: {len(serialized)} bytes")
+
+    # Debug: manually check the serialized data
+    print(f"Serialized bytes: {serialized[:30]}...")  # Show first 30 bytes
+
+    deserialized = InternalNodeHeader.from_header(serialized)
+    print(f"Deserialized header: keys={deserialized.keys}, children={deserialized.children}")
+
+    assert deserialized.node_type == original_header.node_type, "Node type mismatch"
+    assert deserialized.is_root == original_header.is_root, "Is root mismatch"
+    assert deserialized.parent_page_num == original_header.parent_page_num, "Parent page num mismatch"
+    assert deserialized.number_of_keys == original_header.number_of_keys, "Number of keys mismatch"
+    assert deserialized.right_child_page_num == original_header.right_child_page_num, "Right child page num mismatch"
+    assert deserialized.keys == original_header.keys, "Keys mismatch"
+    assert deserialized.children == original_header.children, "Children mismatch"
+
+    # Test with different values - empty internal node
+    header2 = InternalNodeHeader(
+        node_type=NodeType.INTERNAL,
+        is_root=False,
+        parent_page_num=2,
+        number_of_keys=0,
+        right_child_page_num=0,
+        keys=[],
+        children=[0]
+    )
+    serialized2 = header2.to_header()
+    deserialized2 = InternalNodeHeader.from_header(serialized2)
+
+    assert deserialized2.node_type == header2.node_type, "Node type mismatch"
+    assert deserialized2.is_root == header2.is_root, "Is root mismatch"
+    assert deserialized2.parent_page_num == header2.parent_page_num, "Parent page num mismatch"
+    assert deserialized2.number_of_keys == header2.number_of_keys, "Number of keys mismatch"
+    assert deserialized2.right_child_page_num == header2.right_child_page_num, "Right child page num mismatch"
+    assert deserialized2.keys == header2.keys, "Keys mismatch"
+    assert deserialized2.children == header2.children, "Children mismatch"
+
+    # Test with maximum keys (INTERNAL_NODE_MAX_CELLS)
+    header3 = InternalNodeHeader(
+        node_type=NodeType.INTERNAL,
+        is_root=False,
+        parent_page_num=1,
+        number_of_keys=INTERNAL_NODE_MAX_CELLS,
+        right_child_page_num=10,
+        keys=[5, 15, 25],
+        children=[2, 4, 6, 8]
+    )
+    serialized3 = header3.to_header()
+    deserialized3 = InternalNodeHeader.from_header(serialized3)
+
+    assert deserialized3.node_type == header3.node_type, "Node type mismatch"
+    assert deserialized3.is_root == header3.is_root, "Is root mismatch"
+    assert deserialized3.parent_page_num == header3.parent_page_num, "Parent page num mismatch"
+    assert deserialized3.number_of_keys == header3.number_of_keys, "Number of keys mismatch"
+    assert deserialized3.right_child_page_num == header3.right_child_page_num, "Right child page num mismatch"
+    assert deserialized3.keys == header3.keys, "Keys mismatch"
+    assert deserialized3.children == header3.children, "Children mismatch"
+
+    print("All internal node header tests passed!")
+
 
 if __name__ == "__main__":
     test_file_header()
     test_page_header()
+    test_internal_node_header()
     test_pager()
     test_insert()

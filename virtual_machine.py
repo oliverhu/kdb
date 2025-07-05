@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from btree import PageHeader
+from btree import LeafNodeHeader
 from generator import ColumnNameGenerator, LiteralGenerator
 from interpreter import Interpreter
 from record import Record, deserialize
