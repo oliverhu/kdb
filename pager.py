@@ -1,5 +1,6 @@
 # Pager is a module that provides a pager for the database.
 # A record is a Python object that is deserialized from a cell. A cell is a serialized record.
+from enum import Enum, auto
 import os
 
 from record import Record, serialize, deserialize
@@ -106,8 +107,13 @@ class DatabaseFileHeader:
         return self.schemas.get(table_name)
 
 
+
+class NodeType(Enum):
+    INTERNAL = 0
+    LEAF = 1
+
 class PageHeader:
-    def __init__(self, node_type: str, is_root: bool, parent_page_num: int, num_cells: int, allocation_pointer: int, cell_pointers: list[int]):
+    def __init__(self, node_type: NodeType, is_root: bool, parent_page_num: int, num_cells: int, allocation_pointer: int, cell_pointers: list[int]):
         self.node_type = node_type
         self.is_root = is_root
         self.num_cells = num_cells
@@ -115,19 +121,20 @@ class PageHeader:
         self.parent_page_num = parent_page_num
         self.cell_pointers = cell_pointers
 
+    @staticmethod
     def from_header(header: bytes):
-        node_type = header[:1].decode("utf-8")
-        is_root = bool(Integer.deserialize(header[1:5]))
-        parent_page_num = Integer.deserialize(header[5:9])
-        num_cells = Integer.deserialize(header[9:13])
-        allocation_pointer = Integer.deserialize(header[13:17])
+        node_type = NodeType(Integer.deserialize(header[0:4]))
+        is_root = Integer.deserialize(header[4:8]) == 1
+        parent_page_num = Integer.deserialize(header[8:12])
+        num_cells = Integer.deserialize(header[12:16])
+        allocation_pointer = Integer.deserialize(header[16:20])
         cell_pointers = []
         for i in range(num_cells):
-            cell_pointers.append(Integer.deserialize(header[17 + i * 4:21 + i * 4]))
+            cell_pointers.append(Integer.deserialize(header[20 + i * 4:24 + i * 4]))
         return PageHeader(node_type, is_root, parent_page_num, num_cells, allocation_pointer, cell_pointers)
 
     def to_header(self):
-        return self.node_type.encode("utf-8") + Integer.serialize(1 if self.is_root else 0) + Integer.serialize(self.parent_page_num) + Integer.serialize(self.num_cells) + Integer.serialize(self.allocation_pointer) + b"".join(Integer.serialize(cell_pointer) for cell_pointer in self.cell_pointers)
+        return Integer.serialize(self.node_type.value) + Integer.serialize(1 if self.is_root else 0) + Integer.serialize(self.parent_page_num) + Integer.serialize(self.num_cells) + Integer.serialize(self.allocation_pointer) + b"".join(Integer.serialize(cell_pointer) for cell_pointer in self.cell_pointers)
 
 
 class Pager:
@@ -152,6 +159,7 @@ class Pager:
         self.pages = [None] * TABLE_MAX_PAGES
 
         self.file_header = self.read_file_header()
+        self.recycled_pages = []  # the pages that are not used (e.g. deleted entries)
         self.init_pages()
 
     def init_pages(self):
@@ -174,8 +182,11 @@ class Pager:
         return self.pages[page_num]
 
     def get_free_page(self):
-        self.num_pages += 1
-        return self.num_pages - 1
+        if len(self.recycled_pages) > 0:
+            return self.recycled_pages.pop()
+        else:
+            self.num_pages += 1
+            return self.num_pages - 1
 
     def write_page(self, page_num, data):
         self.pages[page_num] = data
@@ -289,7 +300,7 @@ class Table:
 def test_page_header():
     # Test serialization/deserialization of page header
     original_header = PageHeader(
-        node_type="L",  # Leaf node
+        node_type=NodeType.LEAF,  # Leaf node
         is_root=True,
         parent_page_num=0,
         num_cells=3,
@@ -308,7 +319,7 @@ def test_page_header():
 
     # Test with different values
     header2 = PageHeader(
-        node_type="I",  # Internal node
+        node_type=NodeType.INTERNAL,  # Internal node
         is_root=False,
         parent_page_num=5,
         num_cells=0,
