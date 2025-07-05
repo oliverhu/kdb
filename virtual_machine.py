@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
+from btree import PageHeader
 from generator import ColumnNameGenerator, LiteralGenerator
 from interpreter import Interpreter
-from pager import PageHeader, Table
 from record import Record, deserialize
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text, Boolean
