@@ -1,4 +1,5 @@
 # Pager is a module that provides a pager for the database.
+# A record is a Python object that is deserialized from a cell. A cell is a serialized record.
 import os
 
 from record import Record, serialize, deserialize
