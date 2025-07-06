@@ -23,6 +23,12 @@ class Record:
     def __str__(self):
         return f"Record(values={self.values}, schema={self.schema})"
 
+    def get_primary_key(self) -> int:
+        for column in self.schema.columns:
+            if column.is_primary_key:
+                return self.values[column.name]
+        raise ValueError("No primary key found in schema")
+
 
 """
 Binary format of the record:

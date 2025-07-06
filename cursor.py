@@ -1,7 +1,10 @@
 from pager import Pager
-from btree import BTree, cell_from_page
+from btree import BTree, NodeType, cell_from_page, get_node_type
 
 """
+Cursor abstrats the B-tree structure and provides a way to iterate over the cells in the tree.
+Since each table is a b-tree, a cursor can be used to iterate over the cells in the table.
+
 [Low Address] ←→ [High Address]
 +-------------------------------------------------------------------+
 | Header (Fixed Size)                                               |
@@ -31,9 +34,10 @@ class Cursor:
     def __init__(self, pager: Pager, tree: BTree):
         self.pager = pager
         self.tree = tree
-        self.page_num = 0
+        self.page_num = tree.root_page_num
         self.end_of_table = False
         self.cell_num = 0
+
 
     def next(self):
         pass
@@ -45,10 +49,20 @@ class Cursor:
 
     def get_cell(self):
         page = self.pager.get_page(self.page_num)
-        return cell_from_page(page, self.row_offset)
+        return cell_from_page(page, self.cell_num)
 
     def get_row_offset(self):
         return self.row_offset
 
     def set_row_offset(self, row_offset: int):
         self.row_offset = row_offset
+
+    # private methods
+    def navigate_to_first_leaf_node(self):
+        node_type = get_node_type(self.pager.read_page(self.page_num))
+        while node_type != NodeType.LEAF:
+            self.page_num = self.tree.get_right_child_page_num(self.page_num)
+            node_type = get_node_type(self.pager.read_page(self.page_num))
+
+    def navigate_to_next_leaf_node(self):
+        self.page_num = self.tree.get_right_child_page_num(self.page_num)

@@ -28,7 +28,7 @@ from record import Record, deserialize, deserialize_key, serialize
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text
 
-type Cell = bytes
+type Cell = bytearray
 
 INTERNAL_NODE_MAX_KEYS = 3
 LEAF_NODE_MAX_CELLS = 3
@@ -37,6 +37,9 @@ class NodeType(Enum):
     INTERNAL = 0
     LEAF = 1
 
+
+def get_node_type(header: bytes) -> NodeType:
+    return NodeType(Integer.deserialize(header[0:4]))
 
 class InternalNodeHeader:
     """
@@ -130,40 +133,41 @@ class BTree:
         self.root_page_num = root_page_num
 
     # public APIs
-    def find(self, key: int, page_num: int = None) -> Cell:
+    def find(self, key: int, page_num: int = None) -> int:
         # recursively find the page that contains the key
         if page_num is None:
             page_num = self.root_page_num
-        cell = self.pager.get_page(page_num)
-        header = LeafNodeHeader.from_header(cell)
-        print(f"header: {header}")
+        page = self.pager.get_page(page_num)
+        header = LeafNodeHeader.from_header(page)
         if header.node_type == NodeType.LEAF:
-            return cell
+            return page_num
         else:
             # For internal nodes, we need to find the appropriate child
             # This is a simplified implementation - in a real B-tree,
             # we would compare the key with the keys in the internal node
             # to determine which child to traverse
-            return self.find(key, header.right_child_page_num)
+            internal_header = InternalNodeHeader.from_header(page)
+            return self.find(key, internal_header.right_child_page_num)
 
     @staticmethod
     def new_tree(pager: Pager):
         # create a new root node (leaf node).
         root_page_num = pager.get_free_page()
         root_page = bytearray(pager.page_size)
-        root_header = LeafNodeHeader(is_root=True, parent_page_num=0, num_cells=0, allocation_pointer=0, cell_pointers=[])
-        root_header.to_header()
+        root_header = LeafNodeHeader(is_root=True, parent_page_num=0, num_cells=0, allocation_pointer=pager.page_size, cell_pointers=[])
+        header_bytes = root_header.to_header()
+        root_page[:len(header_bytes)] = header_bytes
         pager.write_page(root_page_num, bytes(root_page))
         return BTree(pager, root_page_num)
 
-    def insert(self, record: Record, page_num: int = None):
+    def insert(self, record: Record):
         """
-        Insert a record into the specified page.
+        Insert a record into the correct page in the B-tree.
         The record is serialized and added to the page, updating the page header accordingly.
         Returns a tuple of (position, length) where the record was stored.
         """
-        if page_num is None:
-            page_num = self.root_page_num
+        # Find the correct page to insert into
+        page_num = self.find(record.get_primary_key())
 
         # Get the current page
         page = bytearray(self.pager.get_page(page_num))
@@ -203,6 +207,16 @@ class BTree:
 
     def delete(self, key: int):
         pass
+
+    def left_most_leaf_node(self) -> int:
+        page_num = self.root_page_num
+        while get_node_type(self.pager.get_page(page_num)) != NodeType.LEAF:
+            # Get the leftmost child page number from the internal node header
+            # For internal nodes, the first child pointer (leftmost) is stored at bytes 20-24
+            # Bytes 16-20 contain the right_child_page_num which is incorrect for finding leftmost child
+            page_bytes = self.pager.get_page(page_num)[20:24]  # First child pointer in children array
+            page_num = Integer.deserialize(page_bytes)
+        return page_num
 
     # private APIs
 
@@ -298,14 +312,15 @@ def test_pager():
     print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2})")
 
     # Read page and verify records can be read back
-    cell = tree.find(1)
-    read_header = LeafNodeHeader.from_header(cell)
+    page_num = tree.find(1)
+    read_page = pager.read_page(page_num)
+    read_header = LeafNodeHeader.from_header(read_page)
 
     print(f"Page header: num_cells={read_header.num_cells}, cell_pointers={read_header.cell_pointers}")
 
     # Verify records can be read back
-    read_record1 = deserialize(cell[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len1], schema)
-    read_record2 = deserialize(cell[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len2], schema)
+    read_record1 = deserialize(read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len1], schema)
+    read_record2 = deserialize(read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len2], schema)
 
     assert read_record1.values["id"] == record1.values["id"]
     assert read_record1.values["data"] == record1.values["data"]
@@ -335,7 +350,7 @@ def test_insert():
 
     # Create new pager
     pager = Pager(test_db_file)
-    tree = BTree(pager, 0)
+    tree = BTree.new_tree(pager)
 
     # Create a simple schema for testing
     schema = BasicSchema("test_table", [
@@ -349,14 +364,14 @@ def test_insert():
     record3 = Record(values={"id": 3, "data": "third record"}, schema=schema)
 
     # Insert records into page 1
-    pos1, len1 = tree.insert(record1, 1)
-    pos2, len2 = tree.insert(record2, 1)
-    pos3, len3 = tree.insert(record3, 1)
+    pos1, len1 = tree.insert(record1)
+    pos2, len2 = tree.insert(record2)
+    pos3, len3 = tree.insert(record3)
 
     print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2}), {pos3} (length: {len3})")
 
     # Read the page back and verify
-    page = pager.read_page(1)
+    page = pager.read_page(tree.root_page_num)
     header = LeafNodeHeader.from_header(page)
 
     print(f"Page header: num_cells={header.num_cells}, cell_pointers={header.cell_pointers}")
@@ -388,15 +403,8 @@ def test_internal_node_header():
         keys=[10, 20],
         children=[1, 3, 6]
     )
-    print(f"Original header: keys={original_header.keys}, children={original_header.children}")
     serialized = original_header.to_header()
-    print(f"Serialized length: {len(serialized)} bytes")
-
-    # Debug: manually check the serialized data
-    print(f"Serialized bytes: {serialized[:30]}...")  # Show first 30 bytes
-
     deserialized = InternalNodeHeader.from_header(serialized)
-    print(f"Deserialized header: keys={deserialized.keys}, children={deserialized.children}")
 
     assert deserialized.node_type == original_header.node_type, "Node type mismatch"
     assert deserialized.is_root == original_header.is_root, "Is root mismatch"
@@ -427,7 +435,7 @@ def test_internal_node_header():
     assert deserialized2.keys == header2.keys, "Keys mismatch"
     assert deserialized2.children == header2.children, "Children mismatch"
 
-    # Test with maximum keys (INTERNAL_NODE_MAX_CELLS)
+    # Test with maximum keys (INTERNAL_NODE_MAX_KEYS)
     header3 = InternalNodeHeader(
         node_type=NodeType.INTERNAL,
         is_root=False,

@@ -140,16 +140,17 @@ class Pager:
     def page_size(self):
         return PAGE_SIZE
 
-    def get_page(self, page_num):
+    def get_page(self, page_num) -> bytearray:
         if page_num >= TABLE_MAX_PAGES:
             return bytearray(self.page_size)
         if self.pages[page_num] is None:
             if page_num < self.num_pages:
                 self.file_ptr.seek(4196 + page_num * PAGE_SIZE)  # 100 + 4096 for schemas header
-                self.pages[page_num] = self.file_ptr.read(PAGE_SIZE)
+                self.pages[page_num] = bytearray(self.file_ptr.read(PAGE_SIZE))
             else:
                 self.pages[page_num] = bytearray(PAGE_SIZE)
-        return self.pages[page_num]
+        # print("page2 class", type(self.pages[page_num]))
+        return bytearray(self.pages[page_num])
 
     def get_free_page(self):
         if len(self.recycled_pages) > 0:
