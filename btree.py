@@ -48,14 +48,14 @@ class InternalNodeHeader:
     """
     The header of an internal node in the B-tree.
     """
-    def __init__(self, node_type: NodeType,
+    def __init__(self,
                  is_root: bool,
                  parent_page_num: int,
                  num_keys: int,
                  right_child_page_num: int,
                  keys: list[int],
                  children: list[int]):
-        self.node_type = node_type
+        self.node_type = NodeType.INTERNAL
         self.is_root = is_root
         self.parent_page_num = parent_page_num
         self.num_keys = num_keys
@@ -65,7 +65,6 @@ class InternalNodeHeader:
 
     @staticmethod
     def from_header(header: bytes):
-        node_type = NodeType(Integer.deserialize(header[0:4]))
         is_root = Integer.deserialize(header[4:8]) == 1
         parent_page_num = Integer.deserialize(header[8:12])
         num_keys = Integer.deserialize(header[12:16])
@@ -77,7 +76,7 @@ class InternalNodeHeader:
         children_offset = 20 + num_keys * 4
         for i in range(num_keys + 1):
             children.append(Integer.deserialize(header[children_offset + i * 4:children_offset + (i + 1) * 4]))
-        return InternalNodeHeader(node_type, is_root, parent_page_num, num_keys, right_child_page_num, keys, children)
+        return InternalNodeHeader(is_root, parent_page_num, num_keys, right_child_page_num, keys, children)
 
     def to_header(self):
         return Integer.serialize(self.node_type.value) + Integer.serialize(1 if self.is_root else 0) + Integer.serialize(self.parent_page_num) + Integer.serialize(self.num_keys) + Integer.serialize(self.right_child_page_num) + b"".join(Integer.serialize(key) for key in self.keys) + b"".join(Integer.serialize(child) for child in self.children)
@@ -257,7 +256,6 @@ class BTree:
             separator_key = max_key
 
         root_header = InternalNodeHeader(
-            node_type=NodeType.INTERNAL,
             is_root=True,
             parent_page_num=0,
             num_keys=1,  # We have one key separating two children
@@ -535,7 +533,6 @@ def test_insert():
 def test_internal_node_header():
     # Test serialization/deserialization of internal node header
     original_header = InternalNodeHeader(
-        node_type=NodeType.INTERNAL,
         is_root=True,
         parent_page_num=0,
         num_keys=2,
@@ -556,7 +553,6 @@ def test_internal_node_header():
 
     # Test with different values - empty internal node
     header2 = InternalNodeHeader(
-        node_type=NodeType.INTERNAL,
         is_root=False,
         parent_page_num=2,
         num_keys=0,
@@ -577,7 +573,6 @@ def test_internal_node_header():
 
     # Test with maximum keys (INTERNAL_NODE_MAX_KEYS)
     header3 = InternalNodeHeader(
-        node_type=NodeType.INTERNAL,
         is_root=False,
         parent_page_num=1,
         num_keys=INTERNAL_NODE_MAX_KEYS,
