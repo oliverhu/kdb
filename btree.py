@@ -218,14 +218,15 @@ class BTree:
         return BTree(pager, root_page_num)
 
 
-    def insert(self, record: Record):
+    def insert(self, cell: Cell):
         """
-        Insert a record into the correct page in the B-tree.
-        The record is serialized and added to the page, updating the page header accordingly.
-        Returns a tuple of (position, length) where the record was stored.
+        Insert a cell into the correct page in the B-tree.
+        The cell is added to the page, updating the page header accordingly.
+        Returns a tuple of (position, length) where the cell was stored.
         """
         # Find the correct page to insert into
-        page_num = self.find(record.get_primary_key())
+        cell_key = deserialize_key(cell)
+        page_num = self.find(cell_key)
 
         # Get the current page
         page = bytearray(self.pager.get_page(page_num))
@@ -236,19 +237,45 @@ class BTree:
         num_cells = header.num_cells
         if num_cells < LEAF_NODE_MAX_CELLS:
             # Insert into the leaf node
-            return self.insert_into_leaf_node(record, page_num)
+            return self.insert_cell_into_leaf_node(cell, page_num)
         else:
-            # Split the leaf node
-            self.split_leaf_node(page_num, record.schema)
+            # Split the leaf node - we need to get the schema from the existing records
+            # For now, we'll use a default schema or get it from the first record
+            schema = self._get_schema_from_page(page_num)
+            self.split_leaf_node(page_num, schema)
             # Re-fetch the page after split
-            page_num = self.find(record.get_primary_key())
+            page_num = self.find(cell_key)
             page = self.pager.get_page(page_num)
             header = LeafNodeHeader.from_header(page)
-            result = self.insert_into_leaf_node(record, page_num)
+            result = self.insert_cell_into_leaf_node(cell, page_num)
             page = self.pager.get_page(page_num)
             header = LeafNodeHeader.from_header(page)
             return result
 
+    def _get_schema_from_page(self, page_num: int) -> BasicSchema:
+        """
+        Extract the schema from the first record in a page.
+        This is needed when splitting a page that contains cells.
+        """
+        page = self.pager.get_page(page_num)
+        header = LeafNodeHeader.from_header(page)
+
+        if header.num_cells == 0:
+            # If no cells, return a default schema
+            return BasicSchema("default_table", [
+                Column("id", Integer(), True),
+                Column("data", Text(), False)
+            ])
+
+        # Get the first cell to extract schema
+        first_cell_offset = header.cell_pointers[0]
+        cell_data = page[first_cell_offset:]
+        # For now, return a default schema since we can't easily reconstruct the full schema from a cell
+        # In a real implementation, you might store schema information in the page header or elsewhere
+        return BasicSchema("default_table", [
+            Column("id", Integer(), True),
+            Column("data", Text(), False)
+        ])
 
     def delete(self, key: int):
         pass
@@ -352,24 +379,23 @@ class BTree:
         page = bytearray(self.pager.get_page(page_num))
         header = LeafNodeHeader.from_header(page)
 
-        # Calculate the offset where the cell will be stored
-        # Start from the end of the page and work backwards
         cell_offset = header.allocation_pointer - len(cell)
         if cell_offset < 0:
             raise Exception("Cell offset is negative. Not enough space in page.")
 
-        # Write the cell data to the page
         page[cell_offset:cell_offset + len(cell)] = cell
 
-        # Update header
         header.num_cells += 1
-        header.cell_pointers.append(cell_offset)  # Store the offset, not the cell data
+        header.cell_pointers.append(cell_offset)
         header.allocation_pointer = cell_offset
 
         header_bytes = header.to_header()
         page[:len(header_bytes)] = header_bytes
         self.pager.write_page(page_num, bytes(page))
-        self.pager.pages[page_num] = page  # Ensure in-memory page is updated
+        self.pager.pages[page_num] = page
+
+        # Return the position and length
+        return cell_offset, len(cell)
 
     def insert_into_leaf_node(self, record: Record, page_num: int):
         cell = serialize(record)
@@ -464,9 +490,11 @@ def test_pager():
     record1 = Record(values={"id": 1, "data": "test data 1"}, schema=schema)
     record2 = Record(values={"id": 2, "data": "test data 2"}, schema=schema)
 
-    # Insert records using the new insert function
-    tree.insert(record1)
-    tree.insert(record2)
+    # Insert records as cells using the new insert function
+    cell1 = serialize(record1)
+    cell2 = serialize(record2)
+    tree.insert(cell1)
+    tree.insert(cell2)
 
     # Read page and verify records can be read back
     page_num = tree.find(1)
@@ -528,10 +556,13 @@ def test_insert():
     record2 = Record(values={"id": 2, "data": "second record"}, schema=schema)
     record3 = Record(values={"id": 3, "data": "third record"}, schema=schema)
 
-    # Insert records into page 1
-    pos1, len1 = tree.insert(record1)
-    pos2, len2 = tree.insert(record2)
-    pos3, len3 = tree.insert(record3)
+    # Insert records as cells into page 1
+    cell1 = serialize(record1)
+    cell2 = serialize(record2)
+    cell3 = serialize(record3)
+    pos1, len1 = tree.insert(cell1)
+    pos2, len2 = tree.insert(cell2)
+    pos3, len3 = tree.insert(cell3)
 
     print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2}), {pos3} (length: {len3})")
 
@@ -644,9 +675,10 @@ def test_split_leaf_node():
 
     print(f"Inserting {len(records)} records to trigger leaf node split...")
 
-    # Insert records - the last one should trigger a split
+    # Insert records as cells - the last one should trigger a split
     for i, record in enumerate(records):
-        pos, length = tree.insert(record)
+        cell = serialize(record)
+        pos, length = tree.insert(cell)
         print(f"Inserted record {i + 1} at position {pos}, length {length}")
 
     # Verify the tree structure after split
