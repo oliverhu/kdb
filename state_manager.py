@@ -2,10 +2,11 @@
 
 import os
 from sqlite3 import Cursor
-from pager import Pager, PageHeader, PAGE_SIZE
-from record import Record
+from pager import Pager, PAGE_SIZE
+from record import Record, serialize
 from schema.basic_schema import BasicSchema
 from schema.basic_schema import Column, Integer, Text
+from btree import BTree
 
 class StateManager:
     """
@@ -18,29 +19,15 @@ class StateManager:
         self.schemas = self.pager.file_header.schemas.copy()
         # Load table page mappings from file header
         self.table_pages = self.pager.file_header.table_pages.copy()
+        self.trees = {}  # NEW: table_name -> BTree
 
     def register_table(self, table_name: str, schema: BasicSchema):
-        # Get a new page for this table
-        page_num = self.pager.get_free_page()
-
-        # Initialize the new page with a valid PageHeader
-        header = PageHeader(
-            node_type="L",  # Leaf node
-            is_root=True,
-            parent_page_num=0,  # Use 0 for root page (no parent)
-            num_cells=0,
-            allocation_pointer=PAGE_SIZE,  # No cells yet, so allocation pointer at end
-            cell_pointers=[]
-        )
-        page = bytearray(PAGE_SIZE)
-        header_bytes = header.to_header()
-        page[:len(header_bytes)] = header_bytes
-        self.pager.write_page(page_num, bytes(page))
-
+        # Create a new BTree for this table
+        tree = BTree.new_tree(self.pager)
+        page_num = tree.root_page_num
         self.schemas[table_name] = schema
         self.table_pages[table_name] = page_num
-
-        # Update file header
+        self.trees[table_name] = tree  # NEW: store the BTree
         self.pager.file_header.add_schema(table_name, schema, page_num)
         self.pager.file_header.write_schemas_header(self.pager.file_ptr)
         print(f"Registered schema for table {table_name}: {schema} on page {page_num}")
@@ -61,20 +48,14 @@ class StateManager:
         """Insert a record into the specified table"""
         if table_name not in self.schemas:
             raise ValueError(f"Table '{table_name}' not found")
-
-        if table_name not in self.table_pages:
-            raise ValueError(f"No page number found for table '{table_name}'")
-
-        page_num = self.table_pages[table_name]
-        schema = self.schemas[table_name]
-
-        # Ensure the record has the correct schema
-        if record.schema != schema:
-            record.schema = schema
-
-        # Insert the record into the page
-        self.pager.insert(record, page_num)
-        print(f"Inserted record into table '{table_name}' on page {page_num}")
+        if table_name not in self.trees:
+            # If not loaded, create BTree from root page
+            tree = BTree(self.pager, self.table_pages[table_name])
+            self.trees[table_name] = tree
+        tree = self.trees[table_name]
+        cell = serialize(record)
+        tree.insert(cell)
+        print(f"Inserted record into table '{table_name}'")
 
 
 

@@ -200,11 +200,23 @@ class VirtualMachine(Visitor):
         table_name = source.table_name
         schema = self.state_manager.schemas[table_name]
         assert table_name in self.state_manager.schemas, f"Table {table_name} not found"
-        page_num = self.state_manager.table_pages[table_name]
-        page = self.state_manager.pager.get_page(page_num)
-        page_header = PageHeader.from_header(page)
+
+        # Get or create the B-tree for this table
+        if table_name not in self.state_manager.trees:
+            page_num = self.state_manager.table_pages[table_name]
+            from btree import BTree
+            tree = BTree(self.state_manager.pager, page_num)
+            self.state_manager.trees[table_name] = tree
+
+        tree = self.state_manager.trees[table_name]
+
+        # For now, just read all records from the root page
+        # TODO: Implement proper B-tree traversal for all records
         records = []
-        for cell_pointer in page_header.cell_pointers:
+        page = self.state_manager.pager.get_page(tree.root_page_num)
+        header = LeafNodeHeader.from_header(page)
+
+        for cell_pointer in header.cell_pointers:
             try:
                 record = deserialize(page[cell_pointer:], schema)
                 records.append(record)
