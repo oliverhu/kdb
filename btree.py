@@ -239,43 +239,14 @@ class BTree:
             # Insert into the leaf node
             return self.insert_cell_into_leaf_node(cell, page_num)
         else:
-            # Split the leaf node - we need to get the schema from the existing records
-            # For now, we'll use a default schema or get it from the first record
-            schema = self._get_schema_from_page(page_num)
-            self.split_leaf_node(page_num, schema)
+            # Split the leaf node
+            self.split_leaf_node(page_num)
             # Re-fetch the page after split
             page_num = self.find(cell_key)
-            page = self.pager.get_page(page_num)
-            header = LeafNodeHeader.from_header(page)
             result = self.insert_cell_into_leaf_node(cell, page_num)
-            page = self.pager.get_page(page_num)
-            header = LeafNodeHeader.from_header(page)
             return result
 
-    def _get_schema_from_page(self, page_num: int) -> BasicSchema:
-        """
-        Extract the schema from the first record in a page.
-        This is needed when splitting a page that contains cells.
-        """
-        page = self.pager.get_page(page_num)
-        header = LeafNodeHeader.from_header(page)
 
-        if header.num_cells == 0:
-            # If no cells, return a default schema
-            return BasicSchema("default_table", [
-                Column("id", Integer(), True),
-                Column("data", Text(), False)
-            ])
-
-        # Get the first cell to extract schema
-        first_cell_offset = header.cell_pointers[0]
-        cell_data = page[first_cell_offset:]
-        # For now, return a default schema since we can't easily reconstruct the full schema from a cell
-        # In a real implementation, you might store schema information in the page header or elsewhere
-        return BasicSchema("default_table", [
-            Column("id", Integer(), True),
-            Column("data", Text(), False)
-        ])
 
     def delete(self, key: int):
         pass
@@ -322,7 +293,7 @@ class BTree:
         self.pager.write_page(root_page_num, bytes(root_page))
         return root_page_num
 
-    def split_leaf_node(self, page_num: int, schema: BasicSchema):
+    def split_leaf_node(self, page_num: int):
         old_page_num = page_num
         old_header = LeafNodeHeader.from_header(self.pager.get_page(page_num))
         old_header.parent_page_num = self.root_page_num
@@ -336,14 +307,6 @@ class BTree:
         new_header.parent_page_num = new_internal_node
         if self.root_page_num == page_num:
             self.root_page_num = new_internal_node
-        # Debug: print root node type and children after split
-        root_page = self.pager.get_page(self.root_page_num)
-        root_node_type = NodeType(Integer.deserialize(root_page[0:4]))
-        if root_node_type == NodeType.INTERNAL:
-            internal_header = InternalNodeHeader.from_header(root_page)
-            for child_num in internal_header.children:
-                child_page = self.pager.get_page(child_num)
-                child_type = NodeType(Integer.deserialize(child_page[0:4]))
 
         # Write the initial header to the new page before any inserts
         new_header_bytes = new_header.to_header()
@@ -351,14 +314,17 @@ class BTree:
         self.pager.write_page(new_page_num, bytes(new_page))
         self.pager.pages[new_page_num] = new_page  # Ensure in-memory page is updated
 
-        # Split the old page into two pages
+        # Split the old page into two pages - move binary cells directly
         old_page = self.pager.get_page(old_page_num)
         pointers_to_move = old_header.cell_pointers[LEAF_NODE_LEFT_SPLIT_COUNT:]
         for ptr in pointers_to_move:
+            # Get the cell data directly without deserializing
             cell_data = old_page[ptr:]
             size = cell_size(cell_data)
-            record = deserialize(old_page[ptr:ptr+size], schema)
-            self.insert_into_leaf_node(record, new_page_num)
+            cell = old_page[ptr:ptr+size]
+            # Insert the binary cell directly
+            self.insert_cell_into_leaf_node(cell, new_page_num)
+
         # After moving records, re-read the header from the new page (do not overwrite with empty header)
         new_page = self.pager.get_page(new_page_num)
         new_header = LeafNodeHeader.from_header(new_page)
@@ -397,13 +363,8 @@ class BTree:
         # Return the position and length
         return cell_offset, len(cell)
 
-    def insert_into_leaf_node(self, record: Record, page_num: int):
-        cell = serialize(record)
-        self.insert_cell_into_leaf_node(cell, page_num)
-        # Return the position and length where the record was stored
-        # The position is the cell offset, and length is the cell size
-        header = LeafNodeHeader.from_header(self.pager.get_page(page_num))
-        return header.cell_pointers[-1], len(cell)  # Return the last cell's offset and length
+    def insert_into_leaf_node(self, cell: Cell, page_num: int):
+        return self.insert_cell_into_leaf_node(cell, page_num)
 
 
 def test_page_header():
