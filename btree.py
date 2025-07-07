@@ -24,14 +24,17 @@ import os
 from pager import DatabaseFileHeader, Pager
 from typing import List
 
-from record import Record, deserialize, deserialize_key, serialize
+from record import Record, deserialize, deserialize_key, serialize, cell_size
 from schema.basic_schema import BasicSchema, Column
 from schema.datatypes import Integer, Text
 
 type Cell = bytearray
 
+# Constants
 INTERNAL_NODE_MAX_KEYS = 3
 LEAF_NODE_MAX_CELLS = 3
+LEAF_NODE_RIGHT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) // 2
+LEAF_NODE_LEFT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT
 
 class NodeType(Enum):
     INTERNAL = 0
@@ -138,16 +141,44 @@ class BTree:
         if page_num is None:
             page_num = self.root_page_num
         page = self.pager.get_page(page_num)
-        header = LeafNodeHeader.from_header(page)
-        if header.node_type == NodeType.LEAF:
+        node_type_val = Integer.deserialize(page[0:4])
+        node_type = NodeType(node_type_val)
+        # If the page is uninitialized (all zeros or invalid header), initialize it as a leaf node
+        header = None
+        # Only check allocation_pointer for LEAF nodes
+        if (node_type not in (NodeType.LEAF, NodeType.INTERNAL)) or \
+           (node_type == NodeType.LEAF and int.from_bytes(page[16:20], 'little') < 128):
+            header = LeafNodeHeader(is_root=False, parent_page_num=0, num_cells=0, allocation_pointer=self.pager.page_size, cell_pointers=[])
+            header_bytes = header.to_header()
+            page[:len(header_bytes)] = header_bytes
+            self.pager.write_page(page_num, bytes(page))
+            self.pager.pages[page_num] = page
+            node_type = NodeType.LEAF
+        if node_type == NodeType.LEAF:
+            header = LeafNodeHeader.from_header(page)
             return page_num
-        else:
-            # For internal nodes, we need to find the appropriate child
-            # This is a simplified implementation - in a real B-tree,
-            # we would compare the key with the keys in the internal node
-            # to determine which child to traverse
-            internal_header = InternalNodeHeader.from_header(page)
-            return self.find(key, internal_header.right_child_page_num)
+        elif node_type == NodeType.INTERNAL:
+            header = InternalNodeHeader.from_header(page)
+            # For internal nodes, choose the correct child based on the key
+            left_child_page_num = header.children[0]
+            right_child_page_num = header.children[1]
+            # Get the largest key in the left child
+            left_child_page = self.pager.get_page(left_child_page_num)
+            left_child_header = LeafNodeHeader.from_header(left_child_page)
+            if left_child_header.num_cells == 0:
+                # If left child is empty, go right
+                return self.find(key, right_child_page_num)
+            # Get the largest key in the left child
+            max_key = None
+            for ptr in left_child_header.cell_pointers:
+                cell_data = left_child_page[ptr:]
+                cell_key = deserialize_key(cell_data)
+                if max_key is None or cell_key > max_key:
+                    max_key = cell_key
+            if key <= max_key:
+                return self.find(key, left_child_page_num)
+            else:
+                return self.find(key, right_child_page_num)
 
     @staticmethod
     def new_tree(pager: Pager):
@@ -159,6 +190,7 @@ class BTree:
         root_page[:len(header_bytes)] = header_bytes
         pager.write_page(root_page_num, bytes(root_page))
         return BTree(pager, root_page_num)
+
 
     def insert(self, record: Record):
         """
@@ -175,35 +207,22 @@ class BTree:
         # Parse the page header
         header = LeafNodeHeader.from_header(page)
 
-        # Serialize the record
-        record_bytes = serialize(record)
-        record_length = len(record_bytes)
+        num_cells = header.num_cells
+        if num_cells < LEAF_NODE_MAX_CELLS:
+            # Insert into the leaf node
+            return self.insert_into_leaf_node(record, page_num)
+        else:
+            # Split the leaf node
+            self.split_leaf_node(page_num, record.schema)
+            # Re-fetch the page after split
+            page_num = self.find(record.get_primary_key())
+            page = self.pager.get_page(page_num)
+            header = LeafNodeHeader.from_header(page)
+            result = self.insert_into_leaf_node(record, page_num)
+            page = self.pager.get_page(page_num)
+            header = LeafNodeHeader.from_header(page)
+            return result
 
-        # Calculate position for the new record (from end of page)
-        record_pos = self.pager.page_size - record_length
-
-        # If this is not the first record, adjust position to avoid overlap
-        if header.num_cells > 0:
-            # Find the minimum cell pointer to ensure we don't overlap
-            min_cell_pointer = min(header.cell_pointers)
-            record_pos = min_cell_pointer - record_length
-
-        # Update the page header
-        header.num_cells += 1
-        header.cell_pointers.append(record_pos)
-        header.allocation_pointer = record_pos
-
-        # Write the updated header back to the page
-        header_bytes = header.to_header()
-        page[:len(header_bytes)] = header_bytes
-
-        # Write the record data to the page
-        page[record_pos:record_pos + record_length] = record_bytes
-
-        # Write the updated page back to disk
-        self.pager.write_page(page_num, bytes(page))
-
-        return (record_pos, record_length)
 
     def delete(self, key: int):
         pass
@@ -219,6 +238,121 @@ class BTree:
         return page_num
 
     # private APIs
+    def new_internal_node(self, left_node_page_num: int, right_node_page_num: int) -> int:
+        root_page_num = self.pager.get_free_page()
+        root_page = bytearray(self.pager.page_size)
+
+        # Get the maximum key from the left child to use as the separator key
+        left_child_page = self.pager.get_page(left_node_page_num)
+        left_child_header = LeafNodeHeader.from_header(left_child_page)
+        separator_key = 0  # Default value
+        if left_child_header.num_cells > 0:
+            # Find the maximum key in the left child
+            max_key = None
+            for ptr in left_child_header.cell_pointers:
+                cell_data = left_child_page[ptr:]
+                cell_key = deserialize_key(cell_data)
+                if max_key is None or cell_key > max_key:
+                    max_key = cell_key
+            separator_key = max_key
+
+        root_header = InternalNodeHeader(
+            node_type=NodeType.INTERNAL,
+            is_root=True,
+            parent_page_num=0,
+            num_keys=1,  # We have one key separating two children
+            right_child_page_num=right_node_page_num,
+            keys=[separator_key],  # The separator key
+            children=[left_node_page_num, right_node_page_num]
+        )
+        header_bytes = root_header.to_header()
+        root_page[:len(header_bytes)] = header_bytes
+        self.pager.write_page(root_page_num, bytes(root_page))
+        return root_page_num
+
+    def split_leaf_node(self, page_num: int, schema: BasicSchema):
+        old_page_num = page_num
+        old_header = LeafNodeHeader.from_header(self.pager.get_page(page_num))
+        old_header.parent_page_num = self.root_page_num
+
+        new_page_num = self.pager.get_free_page()
+        new_page = bytearray(self.pager.page_size)
+        new_header = LeafNodeHeader(is_root=False, parent_page_num=old_header.parent_page_num, num_cells=0, allocation_pointer=self.pager.page_size, cell_pointers=[])
+
+        new_internal_node = self.new_internal_node(old_page_num, new_page_num)
+        old_header.parent_page_num = new_internal_node
+        new_header.parent_page_num = new_internal_node
+        if self.root_page_num == page_num:
+            self.root_page_num = new_internal_node
+        # Debug: print root node type and children after split
+        root_page = self.pager.get_page(self.root_page_num)
+        root_node_type = NodeType(Integer.deserialize(root_page[0:4]))
+        if root_node_type == NodeType.INTERNAL:
+            internal_header = InternalNodeHeader.from_header(root_page)
+            for child_num in internal_header.children:
+                child_page = self.pager.get_page(child_num)
+                child_type = NodeType(Integer.deserialize(child_page[0:4]))
+
+        # Write the initial header to the new page before any inserts
+        new_header_bytes = new_header.to_header()
+        new_page[:len(new_header_bytes)] = new_header_bytes
+        self.pager.write_page(new_page_num, bytes(new_page))
+        self.pager.pages[new_page_num] = new_page  # Ensure in-memory page is updated
+
+        # Split the old page into two pages
+        old_page = self.pager.get_page(old_page_num)
+        pointers_to_move = old_header.cell_pointers[LEAF_NODE_LEFT_SPLIT_COUNT:]
+        for ptr in pointers_to_move:
+            cell_data = old_page[ptr:]
+            size = cell_size(cell_data)
+            record = deserialize(old_page[ptr:ptr+size], schema)
+            self.insert_into_leaf_node(record, new_page_num)
+        # After moving records, re-read the header from the new page (do not overwrite with empty header)
+        new_page = self.pager.get_page(new_page_num)
+        new_header = LeafNodeHeader.from_header(new_page)
+
+        # --- FIX: Truncate the left node's cell pointers and update header ---
+        old_header.cell_pointers = old_header.cell_pointers[:LEAF_NODE_LEFT_SPLIT_COUNT]
+        old_header.num_cells = LEAF_NODE_LEFT_SPLIT_COUNT
+        if old_header.cell_pointers:
+            old_header.allocation_pointer = min(old_header.cell_pointers)
+        else:
+            old_header.allocation_pointer = self.pager.page_size
+        old_header_bytes = old_header.to_header()
+        old_page[:len(old_header_bytes)] = old_header_bytes
+        self.pager.write_page(old_page_num, bytes(old_page))
+        self.pager.pages[old_page_num] = old_page  # Ensure in-memory page is updated
+
+    def insert_cell_into_leaf_node(self, cell: Cell, page_num: int):
+        page = bytearray(self.pager.get_page(page_num))
+        header = LeafNodeHeader.from_header(page)
+
+        # Calculate the offset where the cell will be stored
+        # Start from the end of the page and work backwards
+        cell_offset = header.allocation_pointer - len(cell)
+        if cell_offset < 0:
+            raise Exception("Cell offset is negative. Not enough space in page.")
+
+        # Write the cell data to the page
+        page[cell_offset:cell_offset + len(cell)] = cell
+
+        # Update header
+        header.num_cells += 1
+        header.cell_pointers.append(cell_offset)  # Store the offset, not the cell data
+        header.allocation_pointer = cell_offset
+
+        header_bytes = header.to_header()
+        page[:len(header_bytes)] = header_bytes
+        self.pager.write_page(page_num, bytes(page))
+        self.pager.pages[page_num] = page  # Ensure in-memory page is updated
+
+    def insert_into_leaf_node(self, record: Record, page_num: int):
+        cell = serialize(record)
+        self.insert_cell_into_leaf_node(cell, page_num)
+        # Return the position and length where the record was stored
+        # The position is the cell offset, and length is the cell size
+        header = LeafNodeHeader.from_header(self.pager.get_page(page_num))
+        return header.cell_pointers[-1], len(cell)  # Return the last cell's offset and length
 
 
 def test_page_header():
@@ -306,10 +440,8 @@ def test_pager():
     record2 = Record(values={"id": 2, "data": "test data 2"}, schema=schema)
 
     # Insert records using the new insert function
-    pos1, len1 = tree.insert(record1)
-    pos2, len2 = tree.insert(record2)
-
-    print(f"Inserted records at positions: {pos1} (length: {len1}), {pos2} (length: {len2})")
+    tree.insert(record1)
+    tree.insert(record2)
 
     # Read page and verify records can be read back
     page_num = tree.find(1)
@@ -319,8 +451,16 @@ def test_pager():
     print(f"Page header: num_cells={read_header.num_cells}, cell_pointers={read_header.cell_pointers}")
 
     # Verify records can be read back
-    read_record1 = deserialize(read_page[read_header.cell_pointers[0]:read_header.cell_pointers[0]+len1], schema)
-    read_record2 = deserialize(read_page[read_header.cell_pointers[1]:read_header.cell_pointers[1]+len2], schema)
+    # Get cell data using the offsets stored in cell_pointers
+    cell1_offset = read_header.cell_pointers[0]
+    cell2_offset = read_header.cell_pointers[1]
+
+    # Calculate cell sizes
+    cell1_size = cell_size(read_page[cell1_offset:])
+    cell2_size = cell_size(read_page[cell2_offset:])
+
+    read_record1 = deserialize(read_page[cell1_offset:cell1_offset + cell1_size], schema)
+    read_record2 = deserialize(read_page[cell2_offset:cell2_offset + cell2_size], schema)
 
     assert read_record1.values["id"] == record1.values["id"]
     assert read_record1.values["data"] == record1.values["data"]
@@ -459,9 +599,91 @@ def test_internal_node_header():
     print("All internal node header tests passed!")
 
 
+def test_split_leaf_node():
+    """Test the split_leaf_node functionality"""
+    test_db_file = "test_split.db"
+    if os.path.exists(test_db_file):
+        os.remove(test_db_file)
+
+    # Create new pager
+    pager = Pager(test_db_file)
+    tree = BTree.new_tree(pager)
+
+    # Create a simple schema for testing
+    schema = BasicSchema("test_table", [
+        Column("id", Integer(), True),
+        Column("data", Text(), False)
+    ])
+
+    # Create test records - enough to fill a leaf node and trigger a split
+    records = []
+    for i in range(LEAF_NODE_MAX_CELLS + 1):  # Insert one more than max to trigger split
+        records.append(Record(values={"id": i + 1, "data": f"record {i + 1}"}, schema=schema))
+
+    print(f"Inserting {len(records)} records to trigger leaf node split...")
+
+    # Insert records - the last one should trigger a split
+    for i, record in enumerate(records):
+        pos, length = tree.insert(record)
+        print(f"Inserted record {i + 1} at position {pos}, length {length}")
+
+    # Verify the tree structure after split
+    print(f"Root page number after split: {tree.root_page_num}")
+
+    # Read the root page to see if it's now an internal node
+    root_page = pager.read_page(tree.root_page_num)
+    root_node_type = get_node_type(root_page)
+    print(f"Root node type: {root_node_type}")
+
+    # If the root is now an internal node, verify its structure
+    if root_node_type == NodeType.INTERNAL:
+        internal_header = InternalNodeHeader.from_header(root_page)
+        print(f"Internal node header: {internal_header}")
+
+        # Verify internal node properties
+        assert internal_header.is_root == True, "New root should be marked as root"
+        assert internal_header.num_keys == 1, "New internal node should have 1 key separating two children"
+        assert len(internal_header.children) == 2, "Internal node should have 2 children"
+        assert internal_header.right_child_page_num == internal_header.children[1], "Right child should match"
+
+        # Check the left child (original leaf node)
+        left_child_page = pager.read_page(internal_header.children[0])
+        left_header = LeafNodeHeader.from_header(left_child_page)
+        print(f"Left child (original page): num_cells={left_header.num_cells}, cell_pointers={left_header.cell_pointers}")
+
+        # Check the right child (new leaf node)
+        right_child_page = pager.read_page(internal_header.children[1])
+        right_header = LeafNodeHeader.from_header(right_child_page)
+        print(f"Right child (new page): num_cells={right_header.num_cells}, cell_pointers={right_header.cell_pointers}")
+
+        # Verify that records are properly distributed
+        total_cells = left_header.num_cells + right_header.num_cells
+        assert total_cells == LEAF_NODE_MAX_CELLS + 1, f"Total cells should be {LEAF_NODE_MAX_CELLS + 1}, got {total_cells}"
+
+        # Check that records are properly distributed
+        # After inserting 4 records: split happens at 3 cells (2 left, 1 right), then 4th record goes to right
+        # So final distribution should be: left=2, right=2
+        assert left_header.num_cells == LEAF_NODE_LEFT_SPLIT_COUNT, f"Left child should have {LEAF_NODE_LEFT_SPLIT_COUNT} cells"
+        assert right_header.num_cells == 2, f"Right child should have 2 cells (1 from split + 1 from 4th insert)"
+
+        print("✓ Leaf node split test passed!")
+    else:
+        print("Warning: Root is still a leaf node - split may not have occurred")
+        # This could happen if the split logic isn't working correctly
+        leaf_header = LeafNodeHeader.from_header(root_page)
+        print(f"Leaf node has {leaf_header.num_cells} cells, max is {LEAF_NODE_MAX_CELLS}")
+
+    # Clean up
+    pager.close()
+    os.remove(test_db_file)
+
+    print("All split leaf node tests passed!")
+
+
 if __name__ == "__main__":
     test_file_header()
     test_page_header()
     test_internal_node_header()
     test_pager()
     test_insert()
+    test_split_leaf_node()

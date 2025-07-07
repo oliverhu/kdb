@@ -55,6 +55,14 @@ def serialize(record: Record) -> bytearray:
     # print("serialized", key_size, data_size, key, data_header, data)
     return key_size + data_size + key + data_header + data
 
+def cell_size(serialized_value: bytearray) -> int:
+    ptr = 0
+    key_size = Integer.deserialize(serialized_value[ptr:4])
+    ptr += 4
+    data_size = Integer.deserialize(serialized_value[ptr:ptr + 4])
+    ptr += 4
+    return 8 + key_size + data_size
+
 def deserialize_key(serialized_value: bytearray) -> int:
     ptr = 0
     key_size = Integer.deserialize(serialized_value[ptr:4])
