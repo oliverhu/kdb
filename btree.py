@@ -134,6 +134,33 @@ class BTree:
         self.pager = pager
         self.root_page_num = root_page_num
 
+    def __str__(self):
+        """Returns a string representation of the B-tree structure"""
+        def print_node(page_num: int, level: int = 0) -> str:
+            page = self.pager.get_page(page_num)
+            node_type = NodeType(Integer.deserialize(page[0:4]))
+            result = "  " * level
+
+            if node_type == NodeType.LEAF:
+                header = LeafNodeHeader.from_header(page)
+                result += f"Leaf Node (page {page_num}): {header.num_cells} cells\n"
+                for ptr in header.cell_pointers:
+                    cell_data = page[ptr:]
+                    key = deserialize_key(cell_data)
+                    result += "  " * (level + 1) + f"Key: {key}\n"
+            else:  # INTERNAL
+                header = InternalNodeHeader.from_header(page)
+                result += f"Internal Node (page {page_num}): {header.num_keys} keys\n"
+                # Print children recursively
+                for i, child in enumerate(header.children):
+                    if i > 0:
+                        result += "  " * (level + 1) + f"Key: {header.keys[i-1]}\n"
+                    result += print_node(child, level + 1)
+
+            return result
+
+        return f"B-tree (root: page {self.root_page_num}):\n" + print_node(self.root_page_num)
+
     # public APIs
     def find(self, key: int, page_num: int = None) -> int:
         # recursively find the page that contains the key
@@ -668,6 +695,7 @@ def test_split_leaf_node():
         leaf_header = LeafNodeHeader.from_header(root_page)
         print(f"Leaf node has {leaf_header.num_cells} cells, max is {LEAF_NODE_MAX_CELLS}")
 
+    print(tree)
     # Clean up
     pager.close()
     os.remove(test_db_file)
