@@ -25,7 +25,7 @@ def test_catalog_table_initialization():
 
     # Verify schema
     assert catalog.schema.name == "catalog", "Schema table name should be 'catalog'"
-    assert len(catalog.schema.columns) == 3, "Should have 3 columns"
+    assert len(catalog.schema.columns) == 4, "Should have 4 columns"
 
     # Verify column names and types
     column_names = [col.name for col in catalog.schema.columns]
@@ -226,7 +226,7 @@ def test_catalog_table_schema_consistency():
     schema = catalog.schema
 
     # Check column count
-    assert len(schema.columns) == 3, "Should have exactly 3 columns"
+    assert len(schema.columns) == 4, "Should have exactly 4 columns"
 
     # Check column details
     id_col = next(col for col in schema.columns if col.name == "id")
