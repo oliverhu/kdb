@@ -24,11 +24,11 @@ class Integer(Datatype):
 
     @staticmethod
     def serialize(value: int) -> bytes:
-        return value.to_bytes(4, sys.byteorder)
+        return value.to_bytes(4, sys.byteorder, signed=True)
 
     @staticmethod
     def deserialize(value: bytes) -> Any:
-        return int.from_bytes(value, sys.byteorder)
+        return int.from_bytes(value, sys.byteorder, signed=True)
 
 class Text(Datatype):
     typename = "Text"

@@ -255,7 +255,9 @@ class ToAst(Transformer):
         return SelectClause(args)
 
     def from_clause(self, args):
-        fc = FromClause(args[0], args[1])
+        source = args[0]
+        where_clause = args[1] if len(args) > 1 else None
+        fc = FromClause(source, where_clause)
         fc.source = FromSource(fc.source)
         return fc
 

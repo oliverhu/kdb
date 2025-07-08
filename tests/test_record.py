@@ -122,21 +122,3 @@ def test_record_serialization_round_trip():
         assert deserialized_record.values[key] == value, f"Mismatch for {key}: {value} != {deserialized_record.values[key]}"
 
     print("✓ Complete record round trip successful!")
-
-
-if __name__ == "__main__":
-    print("Running record tests...")
-    print("="*50)
-
-    try:
-        test_deserialize_key()
-        test_record_serialization_round_trip()
-        print("\n" + "="*50)
-        print("All tests passed! ✓")
-        print("="*50)
-    except AssertionError as e:
-        print(f"\n❌ Test failed: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-        sys.exit(1)
