@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from btree import LeafNodeHeader
+from cursor import Cursor
 from generator import ColumnNameGenerator, LiteralGenerator
 from interpreter import Interpreter
 from record import Record, deserialize
@@ -210,19 +211,22 @@ class VirtualMachine(Visitor):
 
         tree = self.state_manager.trees[table_name]
 
-        # For now, just read all records from the root page
-        # TODO: Implement proper B-tree traversal for all records
+                # Use cursor for proper B-tree traversal
         records = []
-        page = self.state_manager.pager.get_page(tree.root_page_num)
-        header = LeafNodeHeader.from_header(page)
+        cursor = Cursor(self.state_manager.pager, tree)
+        cursor.navigate_to_first_leaf_node()
 
-        for cell_pointer in header.cell_pointers:
+        while not cursor.end_of_table:
             try:
-                record = deserialize(page[cell_pointer:], schema)
+                cell = cursor.get_cell()
+                record = deserialize(cell, schema)
                 records.append(record)
             except Exception as e:
-                print(f"Error deserializing record at offset {cell_pointer}: {e}")
+                print(f"Error deserializing record: {e}")
                 continue
+
+            cursor.advance()
+
         return records
 
     def filter_records(self, where_clause: WhereClause, records: List[Record]):
