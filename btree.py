@@ -136,6 +136,16 @@ class BTree:
     def __init__(self, pager: Pager, root_page_num: int):
         self.pager = pager
         self.root_page_num = root_page_num
+        # Initialize root page as leaf if empty
+        page = self.pager.get_page(root_page_num)
+        if all(b == 0 for b in page):
+            header = LeafNodeHeader(is_root=True, parent_page_num=0, num_cells=0, allocation_pointer=self.pager.page_size, cell_pointers=[])
+            header_bytes = header.to_header()
+            page[:len(header_bytes)] = header_bytes
+            self.pager.write_page(root_page_num, bytes(page))
+            # Ensure num_pages is correct so get_free_page never returns root
+            if root_page_num >= self.pager.num_pages:
+                self.pager.num_pages = root_page_num + 1
 
     def __str__(self):
         """Returns a string representation of the B-tree structure"""
@@ -150,6 +160,7 @@ class BTree:
                 for ptr in header.cell_pointers:
                     cell_data = page[ptr:]
                     key = deserialize_key(cell_data)
+                    print(f"[DEBUG] __str__: page {page_num}, cell at {ptr}, key={key}")
                     result += "  " * (level + 1) + f"Key: {key}\n"
             else:  # INTERNAL
                 header = InternalNodeHeader.from_header(page)
@@ -159,6 +170,11 @@ class BTree:
                     if i > 0:
                         result += "  " * (level + 1) + f"Key: {header.keys[i-1]}\n"
                     result += print_node(child, level + 1)
+                # Print the right child if it exists
+                if header.right_child_page_num != 0:
+                    if len(header.children) > 0:
+                        result += "  " * (level + 1) + f"Key: {header.keys[-1]}\n"
+                    result += print_node(header.right_child_page_num, level + 1)
 
             return result
 
@@ -166,6 +182,7 @@ class BTree:
 
     # public APIs
     def find(self, key: int, page_num: int = None) -> int:
+        print(f"[DEBUG] BTree.find: searching for key={key} at page_num={page_num if page_num is not None else self.root_page_num}")
         # recursively find the page that contains the key
         if page_num is None:
             page_num = self.root_page_num
@@ -242,15 +259,22 @@ class BTree:
         header = LeafNodeHeader.from_header(page)
 
         num_cells = header.num_cells
+        print(f"[DEBUG] insert: page_num={page_num}, num_cells before insert={num_cells}, key to insert={cell_key}")
         if num_cells < LEAF_NODE_MAX_CELLS:
             # Insert into the leaf node
-            return self.insert_cell_into_leaf_node(cell, page_num)
+            result = self.insert_cell_into_leaf_node(cell, page_num)
+            header_after = LeafNodeHeader.from_header(self.pager.get_page(page_num))
+            print(f"[DEBUG] insert: num_cells after insert={header_after.num_cells}")
+            return result
         else:
+            print(f"[DEBUG] insert: triggering split on page_num={page_num}, num_cells={num_cells}")
             # Split the leaf node
             self.split_leaf_node(page_num)
             # Re-fetch the page after split
             page_num = self.find(cell_key)
             result = self.insert_cell_into_leaf_node(cell, page_num)
+            header_after = LeafNodeHeader.from_header(self.pager.get_page(page_num))
+            print(f"[DEBUG] insert: num_cells after split+insert={header_after.num_cells}")
             return result
 
     def delete(self, key: int):
@@ -280,18 +304,11 @@ class BTree:
         else:
             # Not enough children, this is an error state
             print(f"[ERROR] _rebuild_children: not enough children for {header.num_keys} keys, all_children={all_children}")
-            # Try to recover by duplicating the right child if we have at least one child
-            if len(all_children) == 0:
-                header.children = []
-                header.right_child_page_num = 0
-            elif len(all_children) == 1:
-                # For 1 key, we need 2 children. Duplicate the single child.
-                header.children = [all_children[0]]
-                header.right_child_page_num = all_children[0]
-            else:
-                # For multiple keys, duplicate the last child to fill the gap
-                header.children = all_children[:-1] + [all_children[-1]] * (header.num_keys - len(all_children) + 1)
-                header.right_child_page_num = all_children[-1]
+            # This should not happen in normal operation. If it does, it indicates a bug in the split logic.
+            # For now, we'll set the node to have no children and let the caller handle it.
+            header.children = []
+            header.right_child_page_num = 0
+            header.num_keys = 0
 
     def new_internal_node(self, left_node_page_num: int, right_node_page_num: int) -> int:
         root_page_num = self.pager.get_free_page()
@@ -346,7 +363,6 @@ class BTree:
 
         # Build the full list of children
         full_children = old_header.children + [old_header.right_child_page_num]
-        full_children = [c for c in full_children if c != 0]
         # Insert the new child in the correct position
         insert_pos = 0
         while insert_pos < len(old_header.keys) and new_child_key > old_header.keys[insert_pos]:
@@ -363,15 +379,21 @@ class BTree:
         left_children = full_children[:mid+1]
         right_children = full_children[mid+1:]
 
+        # Ensure correct number of children for each side
+        if len(left_children) != len(left_keys) + 1:
+            raise Exception(f"Internal node split error: left_children count {len(left_children)} does not match left_keys+1 {len(left_keys)+1}. full_children={full_children}, mid={mid}, old_header.keys={old_header.keys}")
+        if len(right_children) != len(right_keys) + 1:
+            raise Exception(f"Internal node split error: right_children count {len(right_children)} does not match right_keys+1 {len(right_keys)+1}. full_children={full_children}, mid={mid}, old_header.keys={old_header.keys}")
+
         # Assign children and right_child for left node
         old_header.keys = left_keys
         old_header.children = left_children[:-1]
         old_header.num_keys = len(left_keys)
         old_header.right_child_page_num = left_children[-1]
-        self._rebuild_children(old_header)
         old_header_bytes = old_header.to_header()
         old_page[:len(old_header_bytes)] = old_header_bytes
         self.pager.write_page(page_num, bytes(old_page))
+        print(f"[DEBUG] split_internal_node: left node (page {page_num}) keys={old_header.keys}, children={old_header.children}, right_child={old_header.right_child_page_num}")
 
         # Assign children and right_child for right node
         new_page_num = self.pager.get_free_page()
@@ -384,10 +406,10 @@ class BTree:
             keys=right_keys,
             children=right_children[:-1]
         )
-        self._rebuild_children(new_header)
         new_header_bytes = new_header.to_header()
         new_page[:len(new_header_bytes)] = new_header_bytes
         self.pager.write_page(new_page_num, bytes(new_page))
+        print(f"[DEBUG] split_internal_node: right node (page {new_page_num}) keys={new_header.keys}, children={new_header.children}, right_child={new_header.right_child_page_num}")
 
         for child_page_num in right_children:
             child_page = bytearray(self.pager.get_page(child_page_num))
@@ -413,10 +435,10 @@ class BTree:
                 keys=[separator_key],
                 children=[page_num]
             )
-            self._rebuild_children(new_root_header)
             new_root_header_bytes = new_root_header.to_header()
             new_root_page[:len(new_root_header_bytes)] = new_root_header_bytes
             self.pager.write_page(new_root_page_num, bytes(new_root_page))
+            print(f"[DEBUG] split_internal_node: new root (page {new_root_page_num}) keys={[separator_key]}, children={[page_num]}, right_child={new_page_num}")
             old_header.parent_page_num = new_root_page_num
             old_header.is_root = False
             new_header.parent_page_num = new_root_page_num
@@ -426,129 +448,135 @@ class BTree:
             new_header_bytes = new_header.to_header()
             new_page[:len(new_header_bytes)] = new_header_bytes
             self.pager.write_page(new_page_num, bytes(new_page))
-            self.root_page_num = new_root_page_num
             return new_root_page_num
         else:
             return self.split_internal_node(old_header.parent_page_num, new_page_num, separator_key)
 
     def split_leaf_node(self, page_num: int):
+        print(f"[DEBUG] split_leaf_node: starting split of page {page_num}")
         old_page_num = page_num
         old_header = LeafNodeHeader.from_header(self.pager.get_page(page_num))
+        print(f"[DEBUG] split_leaf_node: old_header has {old_header.num_cells} cells, pointers={old_header.cell_pointers}")
+        old_page = self.pager.get_page(old_page_num)
+        # Make a copy of the cell pointers to use for splitting
+        cell_pointers_copy = list(old_header.cell_pointers)
+        # Print all keys in old page before split
+        keys_before = [deserialize_key(old_page[ptr:]) for ptr in cell_pointers_copy]
+        print(f"[DEBUG] split_leaf_node: keys in old page before split: {keys_before}")
+        # Allocate new page for the split
         new_page_num = self.pager.get_free_page()
         new_page = bytearray(self.pager.page_size)
         new_header = LeafNodeHeader(is_root=False, parent_page_num=old_header.parent_page_num, num_cells=0, allocation_pointer=self.pager.page_size, cell_pointers=[])
         new_header_bytes = new_header.to_header()
         new_page[:len(new_header_bytes)] = new_header_bytes
         self.pager.write_page(new_page_num, bytes(new_page))
-        self.pager.pages[new_page_num] = new_page
-        old_page = self.pager.get_page(old_page_num)
-        pointers_to_move = old_header.cell_pointers[LEAF_NODE_LEFT_SPLIT_COUNT:]
+        print(f"[DEBUG] split_leaf_node: new page {new_page_num} header after allocation: {LeafNodeHeader.from_header(self.pager.get_page(new_page_num))}")
+
+        # Sort cell_pointers by key before splitting
+        cell_ptrs_with_keys = [(ptr, deserialize_key(old_page[ptr:])) for ptr in cell_pointers_copy]
+        cell_ptrs_with_keys.sort(key=lambda x: x[1])
+        sorted_cell_pointers = [ptr for ptr, key in cell_ptrs_with_keys]
+        sorted_keys = [key for ptr, key in cell_ptrs_with_keys]
+        print(f"[DEBUG] split_leaf_node: all keys before split: {sorted_keys}")
+        for ptr in sorted_cell_pointers:
+            cell_bytes = old_page[ptr:ptr+16]  # print first 16 bytes for brevity
+            print(f"[DEBUG] split_leaf_node: cell at {ptr}, bytes={cell_bytes}")
+
+        # Move cells to new page BEFORE updating the old page header or writing the page
+        pointers_to_move = sorted_cell_pointers[LEAF_NODE_LEFT_SPLIT_COUNT:]
+        keys_to_move = [deserialize_key(old_page[ptr:]) for ptr in pointers_to_move]
+        print(f"[DEBUG] split_leaf_node: keys to move to new page: {keys_to_move}")
         for ptr in pointers_to_move:
             cell_data = old_page[ptr:]
             size = cell_size(cell_data)
             cell = old_page[ptr:ptr+size]
+            print(f"[DEBUG] split_leaf_node: moving cell at {ptr}, size={size}, key={deserialize_key(cell)}")
             self.insert_cell_into_leaf_node(cell, new_page_num)
-        new_page = self.pager.get_page(new_page_num)
-        new_header = LeafNodeHeader.from_header(new_page)
-        old_header.cell_pointers = old_header.cell_pointers[:LEAF_NODE_LEFT_SPLIT_COUNT]
+            # Print new page header after each insert
+            print(f"[DEBUG] split_leaf_node: new page {new_page_num} header after insert: {LeafNodeHeader.from_header(self.pager.get_page(new_page_num))}")
+        # Update old page header with remaining cells
+        old_header.cell_pointers = sorted_cell_pointers[:LEAF_NODE_LEFT_SPLIT_COUNT]
         old_header.num_cells = LEAF_NODE_LEFT_SPLIT_COUNT
         if old_header.cell_pointers:
             old_header.allocation_pointer = min(old_header.cell_pointers)
         else:
             old_header.allocation_pointer = self.pager.page_size
+        left_keys_after = [deserialize_key(old_page[ptr:]) for ptr in old_header.cell_pointers]
+        print(f"[DEBUG] split_leaf_node: keys remaining in old page after split: {left_keys_after}")
         old_header_bytes = old_header.to_header()
         old_page[:len(old_header_bytes)] = old_header_bytes
         self.pager.write_page(old_page_num, bytes(old_page))
-        self.pager.pages[old_page_num] = old_page
-        max_key = 0
-        if old_header.num_cells > 0:
-            for ptr in old_header.cell_pointers:
-                cell_data = old_page[ptr:]
-                cell_key = deserialize_key(cell_data)
-                if cell_key > max_key:
-                    max_key = cell_key
+        # Re-fetch the new page and header after all insertions
+        new_page = self.pager.get_page(new_page_num)
+        new_header = LeafNodeHeader.from_header(new_page)
+        new_keys = [deserialize_key(new_page[ptr:]) for ptr in new_header.cell_pointers]
+        print(f"[DEBUG] split_leaf_node: keys in new page after split: {new_keys}")
+        # If parent is internal, print its keys and children
+        if old_header.parent_page_num != 0:
+            parent_page = self.pager.get_page(old_header.parent_page_num)
+            if get_node_type(parent_page) == NodeType.INTERNAL:
+                parent_header = InternalNodeHeader.from_header(parent_page)
+                print(f"[DEBUG] split_leaf_node: parent internal node (page {old_header.parent_page_num}) keys={parent_header.keys}, children={parent_header.children}, right_child={parent_header.right_child_page_num}")
+
+        # Implement comprehensive split logic for both root and non-root cases
         if old_header.is_root:
+            # Create a new root internal node
             new_root_page_num = self.pager.get_free_page()
             new_root_page = bytearray(self.pager.page_size)
-            # After split, old_page_num is left, new_page_num is right
-            left_child = old_page_num
-            right_child = new_page_num
+            # The separator key is the max key in the left (old) leaf
+            separator_key = max(left_keys_after) if left_keys_after else 0
             new_root_header = InternalNodeHeader(
                 is_root=True,
                 parent_page_num=0,
                 num_keys=1,
-                right_child_page_num=right_child,
-                keys=[max_key],
-                children=[left_child]
+                right_child_page_num=new_page_num,
+                keys=[separator_key],
+                children=[old_page_num]
             )
             new_root_header_bytes = new_root_header.to_header()
             new_root_page[:len(new_root_header_bytes)] = new_root_header_bytes
             self.pager.write_page(new_root_page_num, bytes(new_root_page))
+            print(f"[DEBUG] split_leaf_node: new root (page {new_root_page_num}) keys={[separator_key]}, children={[old_page_num]}, right_child={new_page_num}")
+            # Update old and new leaf headers to point to new root
             old_header.parent_page_num = new_root_page_num
             old_header.is_root = False
-            new_header.parent_page_num = new_root_page_num
             old_header_bytes = old_header.to_header()
             old_page[:len(old_header_bytes)] = old_header_bytes
             self.pager.write_page(old_page_num, bytes(old_page))
+            new_header.parent_page_num = new_root_page_num
             new_header_bytes = new_header.to_header()
             new_page[:len(new_header_bytes)] = new_header_bytes
             self.pager.write_page(new_page_num, bytes(new_page))
             self.root_page_num = new_root_page_num
         else:
+            # Insert new child and separator key into parent internal node
             parent_page_num = old_header.parent_page_num
             parent_page = self.pager.get_page(parent_page_num)
             parent_header = InternalNodeHeader.from_header(parent_page)
-            # Build the full list of children from all current leaves
-            # Get all children by traversing the parent's children and right_child, plus the new page
-            full_children = parent_header.children + [parent_header.right_child_page_num, new_page_num]
-            # Remove duplicates while preserving order
-            seen = set()
-            full_children = [x for x in full_children if not (x in seen or seen.add(x))]
-            # Sort children by their minimum key (for correct B-tree order)
-            def min_key(page_num):
-                page = self.pager.get_page(page_num)
-                if get_node_type(page) == NodeType.LEAF:
-                    header = LeafNodeHeader.from_header(page)
-                    if header.num_cells > 0:
-                        min_ptr = min(header.cell_pointers)
-                        cell_data = page[min_ptr:]
-                        return deserialize_key(cell_data)
-                return float('inf')
-            full_children.sort(key=min_key)
-            # Ensure we have enough children
-            insert_pos = 0
-            while insert_pos < len(parent_header.keys) and max_key > parent_header.keys[insert_pos]:
-                insert_pos += 1
-            parent_header.keys.insert(insert_pos, max_key)
-            new_num_keys = len(parent_header.keys)
-            while len(full_children) < new_num_keys + 1:
-                if full_children:
-                    full_children.append(full_children[-1])
-                else:
-                    full_children.append(new_page_num)
-            parent_header.num_keys = new_num_keys
-            parent_header.children = full_children[:new_num_keys]
-            parent_header.right_child_page_num = full_children[new_num_keys]
-            # Write the corrected parent page immediately
-            parent_header_bytes = parent_header.to_header()
-            parent_page[:len(parent_header_bytes)] = parent_header_bytes
-            self.pager.write_page(parent_page_num, bytes(parent_page))
-            self.pager.pages[parent_page_num] = parent_page
-            # Verify the page was written correctly
-            verify_page = self.pager.get_page(parent_page_num)
-            verify_header = InternalNodeHeader.from_header(verify_page)
-            if len(parent_header.children) > 3:
-                self.split_internal_node(parent_page_num, new_page_num, max_key)
+            # The separator key is the max key in the left (old) leaf
+            separator_key = max(left_keys_after) if left_keys_after else 0
+            # Insert new child and key into parent
+            if parent_header.num_keys < INTERNAL_NODE_MAX_KEYS:
+                # Insert into parent directly
+                insert_pos = 0
+                while insert_pos < len(parent_header.keys) and separator_key > parent_header.keys[insert_pos]:
+                    insert_pos += 1
+                parent_header.keys.insert(insert_pos, separator_key)
+                parent_header.num_keys += 1
+                # Insert new child into children/right_child
+                full_children = parent_header.children + [parent_header.right_child_page_num]
+                full_children.insert(insert_pos + 1, new_page_num)
+                parent_header.children = full_children[:-1]
+                parent_header.right_child_page_num = full_children[-1]
+                parent_header_bytes = parent_header.to_header()
+                parent_page[:len(parent_header_bytes)] = parent_header_bytes
+                self.pager.write_page(parent_page_num, bytes(parent_page))
+                print(f"[DEBUG] split_leaf_node: updated parent (page {parent_page_num}) keys={parent_header.keys}, children={parent_header.children}, right_child={parent_header.right_child_page_num}")
             else:
-                old_header.parent_page_num = parent_page_num
-                new_header.parent_page_num = parent_page_num
-                old_header_bytes = old_header.to_header()
-                old_page[:len(old_header_bytes)] = old_header_bytes
-                self.pager.write_page(old_page_num, bytes(old_page))
-                new_header_bytes = new_header.to_header()
-                new_page[:len(new_header_bytes)] = new_header_bytes
-                self.pager.write_page(new_page_num, bytes(new_page))
-                # Don't write parent_page again - it was already written correctly above
+                # Parent is full, split parent recursively
+                new_root_page_num = self.split_internal_node(parent_page_num, new_page_num, separator_key)
+                if new_root_page_num is not None:
+                    self.root_page_num = new_root_page_num
 
     def insert_cell_into_leaf_node(self, cell: Cell, page_num: int):
         page = bytearray(self.pager.get_page(page_num))
@@ -563,6 +591,10 @@ class BTree:
         header.num_cells += 1
         header.cell_pointers.append(cell_offset)
         header.allocation_pointer = cell_offset
+        print(f"[DEBUG] insert_cell_into_leaf_node: inserted key={deserialize_key(cell)}, at offset={cell_offset}, num_cells={header.num_cells}, cell_pointers={header.cell_pointers}, allocation_pointer={header.allocation_pointer}")
+        # Print the first 16 bytes of each cell for all pointers
+        for ptr in header.cell_pointers:
+            print(f"[DEBUG]   cell at {ptr}, bytes={page[ptr:ptr+16]}")
 
         header_bytes = header.to_header()
         page[:len(header_bytes)] = header_bytes

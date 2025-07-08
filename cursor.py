@@ -72,9 +72,17 @@ class Cursor:
         page = self.pager.get_page(page_num)
         while get_node_type(page) != NodeType.LEAF:
             header = InternalNodeHeader.from_header(page)
-            page_num = header.children[0]
+            if len(header.children) == 0:
+                # If no children in children array, use right_child_page_num
+                if header.right_child_page_num == 0:
+                    # Empty tree, set end_of_table
+                    self.end_of_table = True
+                    return
+                page_num = header.right_child_page_num
+            else:
+                page_num = header.children[0]
             page = self.pager.get_page(page_num)
-            self.page_num = page_num
+        self.page_num = page_num  # Set to the leftmost leaf node after traversal
 
     def navigate_to_next_leaf_node(self):
         page = self.pager.get_page(self.page_num)
@@ -92,45 +100,57 @@ class Cursor:
         current_page_num = self.page_num
         while True:
             parent_header = InternalNodeHeader.from_header(self.pager.get_page(parent_page_num))
+
+            # Check if current page is the right child
             if current_page_num == parent_header.right_child_page_num:
                 if parent_header.is_root:
                     self.end_of_table = True
                     return None
                 current_page_num = parent_page_num
                 parent_page_num = parent_header.parent_page_num
-            else:
-                for i, child_page_num in enumerate(parent_header.children):
-                    if child_page_num == current_page_num:
-                        # If not the last child, go to the next sibling
-                        if i + 1 < len(parent_header.children):
-                            next_sibling = parent_header.children[i + 1]
-                            # Skip invalid page numbers (0)
-                            if next_sibling == 0:
-                                # Try to find the next valid sibling
-                                for j in range(i + 2, len(parent_header.children)):
-                                    if parent_header.children[j] != 0:
-                                        next_sibling = parent_header.children[j]
-                                        break
-                                else:
-                                    # No valid sibling found, try right_child
-                                    if parent_header.right_child_page_num != 0:
-                                        next_sibling = parent_header.right_child_page_num
-                                    else:
-                                        self.end_of_table = True
-                                        return None
+                continue
+
+            # Check if current page is one of the children in the children array
+            found_in_children = False
+            for i, child_page_num in enumerate(parent_header.children):
+                if child_page_num == current_page_num:
+                    found_in_children = True
+                    # If not the last child, go to the next sibling
+                    if i + 1 < len(parent_header.children):
+                        next_sibling = parent_header.children[i + 1]
+                        if next_sibling != 0:
                             self.page_num = next_sibling
                             self.navigate_to_first_leaf_node(self.page_num)
                             return
                         else:
-                            # If last child, go to the right_child_page_num
-                            next_sibling = parent_header.right_child_page_num
-                            # Skip invalid page numbers (0)
-                            if next_sibling == 0:
+                            # Try to find the next valid sibling
+                            for j in range(i + 2, len(parent_header.children)):
+                                if parent_header.children[j] != 0:
+                                    self.page_num = parent_header.children[j]
+                                    self.navigate_to_first_leaf_node(self.page_num)
+                                    return
+                            # No valid sibling found, try right_child
+                            if parent_header.right_child_page_num != 0:
+                                self.page_num = parent_header.right_child_page_num
+                                self.navigate_to_first_leaf_node(self.page_num)
+                                return
+                            else:
                                 self.end_of_table = True
                                 return None
-                            self.page_num = next_sibling
+                    else:
+                        # If last child in children array, go to the right_child_page_num
+                        if parent_header.right_child_page_num != 0:
+                            self.page_num = parent_header.right_child_page_num
                             self.navigate_to_first_leaf_node(self.page_num)
                             return
+                        else:
+                            self.end_of_table = True
+                            return None
+                    break
+
+            if not found_in_children:
+                # Current page is not found in children array, this shouldn't happen
+                print(f"[ERROR] navigate_to_next_leaf_node: current_page_num {current_page_num} not found in parent {parent_page_num}")
                 self.end_of_table = True
                 return None
 

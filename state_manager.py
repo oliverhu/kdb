@@ -36,7 +36,7 @@ class StateManager:
         return self.schemas[table_name]
 
     def get_table_cursor(self, table_name: str):
-        return Cursor(self.pager, self.schemas[table_name])
+        return Cursor(self.pager, self.trees[table_name])
 
     def save_schemas(self):
         """Save all schemas to the file header"""
@@ -56,7 +56,6 @@ class StateManager:
         cell = serialize(record)
         tree.insert(cell)
         print(f"Inserted record into table '{table_name}'")
-
 
 
 def test_schema_header():

@@ -149,18 +149,15 @@ class Pager:
                 self.pages[page_num] = bytearray(self.file_ptr.read(PAGE_SIZE))
             else:
                 self.pages[page_num] = bytearray(PAGE_SIZE)
-        # print("page2 class", type(self.pages[page_num]))
-        return bytearray(self.pages[page_num])
+        return self.pages[page_num]
 
     def get_free_page(self):
-        if len(self.recycled_pages) > 0:
-            return self.recycled_pages.pop()
-        else:
-            self.num_pages += 1
-            return self.num_pages - 1
+        # Always allocate a new page to prevent page reuse and data corruption
+        self.num_pages += 1
+        return self.num_pages - 1
 
     def write_page(self, page_num, data):
-        self.pages[page_num] = data
+        self.pages[page_num] = bytearray(data)
         self.flush_page(page_num)
         return self.pages[page_num]
 

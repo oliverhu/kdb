@@ -211,7 +211,7 @@ class VirtualMachine(Visitor):
 
         tree = self.state_manager.trees[table_name]
 
-                # Use cursor for proper B-tree traversal
+        # Use cursor for proper B-tree traversal
         records = []
         cursor = Cursor(self.state_manager.pager, tree)
         cursor.navigate_to_first_leaf_node()
