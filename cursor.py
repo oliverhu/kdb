@@ -1,4 +1,5 @@
 import sys
+from typing import Optional
 from pager import Pager
 from btree import BTree, InternalNodeHeader, LeafNodeHeader, NodeType, get_node_type
 
@@ -47,7 +48,7 @@ class Cursor:
             return
 
         page = self.pager.get_page(self.page_num)
-        header = LeafNodeHeader.from_header(page)
+        header = LeafNodeHeader.from_header(bytes(page))
 
         self.cell_num += 1
         if self.cell_num >= header.num_cells:
@@ -56,7 +57,7 @@ class Cursor:
 
     def get_cell(self):
         page = self.pager.get_page(self.page_num)
-        header = LeafNodeHeader.from_header(page)
+        header = LeafNodeHeader.from_header(bytes(page))
 
         # Check if we're at the end of the current page
         if self.cell_num >= header.num_cells:
@@ -66,12 +67,12 @@ class Cursor:
         return page[cell_offset:]
 
     # private methods
-    def navigate_to_first_leaf_node(self, page_num: int = None):
+    def navigate_to_first_leaf_node(self, page_num: Optional[int] = None):
         if page_num is None:
             page_num = self.page_num
         page = self.pager.get_page(page_num)
-        while get_node_type(page) != NodeType.LEAF:
-            header = InternalNodeHeader.from_header(page)
+        while get_node_type(bytes(page)) != NodeType.LEAF:
+            header = InternalNodeHeader.from_header(bytes(page))
             if len(header.children) == 0:
                 # If no children in children array, use right_child_page_num
                 if header.right_child_page_num == 0:
@@ -86,12 +87,12 @@ class Cursor:
 
     def navigate_to_next_leaf_node(self):
         page = self.pager.get_page(self.page_num)
-        node_type = get_node_type(page)
+        node_type = get_node_type(bytes(page))
         if node_type == NodeType.LEAF:
-            header = LeafNodeHeader.from_header(page)
+            header = LeafNodeHeader.from_header(bytes(page))
             parent_page_num = header.parent_page_num
         else:
-            header = InternalNodeHeader.from_header(page)
+            header = InternalNodeHeader.from_header(bytes(page))
             parent_page_num = header.parent_page_num
         if header.is_root:
             self.end_of_table = True
@@ -99,7 +100,7 @@ class Cursor:
 
         current_page_num = self.page_num
         while True:
-            parent_header = InternalNodeHeader.from_header(self.pager.get_page(parent_page_num))
+            parent_header = InternalNodeHeader.from_header(bytes(self.pager.get_page(parent_page_num)))
 
             # Check if current page is the right child
             if current_page_num == parent_header.right_child_page_num:
