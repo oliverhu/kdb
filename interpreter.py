@@ -7,7 +7,7 @@ from visitor import Visitor
 
 class Interpreter(Visitor):
 
-    def __init__(self, record: Record):
+    def __init__(self, record: Optional[Record] = None):
         self.record = record
 
     def set_record(self, record: Record):

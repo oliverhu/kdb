@@ -17,6 +17,7 @@ class DatabaseFileHeader:
         self.next_free_page = next_free_page
         self.has_free_list = has_free_list
 
+    @staticmethod
     def from_header(header: bytes):
         version = header[:6].decode("utf-8")
         next_free_page = Integer.deserialize(header[6:10])
@@ -113,28 +114,3 @@ class Pager:
 
     def read_page(self, page_num):
         return self.get_page(page_num)
-
-
-class Table:
-    def __init__(self, pager: Pager):
-        self.pager = pager
-        self.num_rows = 0
-
-    def db_open(self, file_name):
-        self.pager = Pager(file_name)
-        self.num_rows = 0
-
-    def db_close(self):
-        self.pager.file_ptr.close()
-
-    def db_insert(self, row):
-        self.pager.pages.append(row.serialize())
-        self.num_rows += 1
-
-    def db_select(self, id):
-        for row in self.pager.pages:
-            if row.id == id:
-                return row
-        return None
-
-
