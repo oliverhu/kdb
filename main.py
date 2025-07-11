@@ -5,7 +5,6 @@ KDB - A simple SQL database implementation with REPL interface
 
 from lark import Lark
 from symbols import *
-from lark import Lark
 
 from grammar import GRAMMAR
 from virtual_machine import VirtualMachine

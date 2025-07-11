@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from virtual_machine import VirtualMachine
-from main import ToAst
+from symbols import ToAst
 
 def test_select():
     # Clean up any existing database
