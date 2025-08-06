@@ -211,8 +211,7 @@ class InsertStmt(Symbol):
 
 @dataclass
 class DeleteStmt(Symbol):
-    table_name: str
-    where_clause: Optional[Any] = None
+    from_clause: FromClause
 
 @dataclass
 class UpdateStmt(Symbol):
@@ -399,10 +398,7 @@ class ToAst(Transformer):
         return InsertStmt(args[0], args[1], args[2])
 
     def delete_stmt(self, args):
-        if len(args) == 1:
-            return DeleteStmt(args[0])
-        else:
-            return DeleteStmt(args[0], args[1])
+        return DeleteStmt(args[0])
 
     def update_stmt(self, args):
         if len(args) == 3:

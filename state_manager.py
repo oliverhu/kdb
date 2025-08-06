@@ -1,13 +1,16 @@
 # Manage the state of the database
 
+from typing import List
 import os
 from sqlite3 import Cursor
+from typing import Any
 from pager import Pager, PAGE_SIZE
 from record import Record, serialize
 from schema.basic_schema import BasicSchema
 from schema.basic_schema import Column, Integer, Text
 from btree import BTree
 from catalog.system_table import CatalogTable
+from symbols import WhereClause
 
 class StateManager:
     """
@@ -90,6 +93,15 @@ class StateManager:
 
         return None
 
+    def delete(self, table_name: str, records: List[Record]):
+        """Delete records from the specified table"""
+        if table_name not in self.trees:
+            raise ValueError(f"Table '{table_name}' not found")
+        tree: BTree = self.trees[table_name]
+        for record in records:            
+            print("deleting", record.get_primary_key())
+            tree.delete(record.get_primary_key())
+    
     def insert(self, table_name: str, record: Record):
         """Insert a record into the specified table"""
         if table_name not in self.schemas:
@@ -106,7 +118,7 @@ class StateManager:
                 self.trees[table_name] = tree
             else:
                 raise ValueError(f"Table '{table_name}' not found")
-        tree = self.trees[table_name]
+        tree: BTree = self.trees[table_name]
         cell = serialize(record)
         tree.insert(cell)
 

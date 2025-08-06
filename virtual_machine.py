@@ -39,6 +39,17 @@ class VirtualMachine(Visitor):
                 value_list.append(generator.get_value(record))
             values.append(value_list)
         print(values)
+    
+    def visit_delete_stmt(self, stmt: DeleteStmt):
+        from_clause = stmt.from_clause
+        records = self.materialize(from_clause.source.source)
+        where_clause = from_clause.where_clause
+        table_name = from_clause.source.source.single_source.table_name
+        if where_clause:
+            records = self.filter_records(where_clause, records)
+
+        self.state_manager.delete(table_name, records)
+        
 
     def visit_select_clause(self, stmt: SelectClause):
         pass
@@ -168,9 +179,6 @@ class VirtualMachine(Visitor):
         record = Record(values=row_dict, schema=schema)
         # For now, insert into page 1
         self.state_manager.insert(table_name, record)
-
-    def visit_delete_stmt(self, stmt: DeleteStmt):
-        pass
 
     def visit_update_stmt(self, stmt: UpdateStmt):
         pass

@@ -96,7 +96,7 @@ GRAMMAR = """
         column_name_list : (column_name ",")* column_name
         value_list       : (literal ",")* literal
 
-        delete_stmt     : "delete"i "from"i table_name where_clause?
+        delete_stmt     : "delete"i from_clause
 
         update_stmt     : "update"i table_name "set"i column_name "=" literal where_clause?
 
