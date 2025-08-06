@@ -23,6 +23,7 @@ def repl(db_file: str):
         "insert into users (id, username, email) values (1, 'John Doe', 'john.doe@example.com')",
         "insert into users (id, username, email) values (2, 'Jane Musk', 'jane.musk@example.com')",
         "select id, username, email from users where id = 2",
+        "update users set email = 'jane.musk@gmail.com' where id = 2",
     ]
     for command in commands:
         print(frontend.parser.parse(command).pretty())

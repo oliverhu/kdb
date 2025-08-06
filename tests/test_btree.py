@@ -336,3 +336,81 @@ def test_split_leaf_node():
     os.remove(test_db_file)
 
     print("✓ Split leaf node tests passed!")
+
+
+def test_delete_function():
+    """Test the delete function implementation"""
+    print("\nTesting delete function...")
+    
+    # Create a temporary database file
+    test_db_file = "test_delete.db"
+    if os.path.exists(test_db_file):
+        os.remove(test_db_file)
+    
+    # Create pager and btree
+    pager = Pager(test_db_file)
+    btree = BTree.new_tree(pager)
+    
+    # Create a simple schema for testing
+    schema = BasicSchema("test_table", [
+        Column("id", Integer, is_primary_key=True),
+        Column("name", Text)
+    ])
+    
+    # Insert some test records
+    test_data = [
+        {"id": 1, "name": "Alice"},
+        {"id": 2, "name": "Bob"},
+        {"id": 3, "name": "Charlie"},
+    ]
+    
+    for data in test_data:
+        record = Record(data, schema)
+        cell = serialize(record)
+        btree.insert(cell)
+    
+    print(f"Inserted {len(test_data)} records")
+    
+    # Test deleting an existing key
+    result = btree.delete(2)
+    assert result == True, "Delete should return True for existing key"
+    print("✓ Successfully deleted existing key")
+    
+    # Test deleting a non-existing key
+    result = btree.delete(999)
+    assert result == False, "Delete should return False for non-existing key"
+    print("✓ Correctly handled non-existing key")
+    
+    # Verify remaining records
+    remaining_keys = []
+    leaf_page_num = btree.left_most_leaf_node()
+    leaf_page = pager.get_page(leaf_page_num)
+    leaf_header = LeafNodeHeader.from_header(leaf_page)
+    
+    for ptr in leaf_header.cell_pointers:
+        from record import deserialize_key
+        cell_data = leaf_page[ptr:]
+        key = deserialize_key(cell_data)
+        remaining_keys.append(key)
+    
+    remaining_keys.sort()
+    expected_keys = [1, 3]  # 2 was deleted
+    assert remaining_keys == expected_keys, f"Expected keys {expected_keys}, got {remaining_keys}"
+    print(f"✓ Verified remaining keys: {remaining_keys}")
+    
+    # Clean up
+    pager.close()
+    os.remove(test_db_file)
+    
+    print("✓ Delete function tests passed!")
+
+
+if __name__ == "__main__":
+    test_page_header()
+    test_file_header()
+    test_internal_node_header()
+    test_pager()
+    test_insert()
+    test_split_leaf_node()
+    test_delete_function()
+    print("\n✓ All tests passed!")
