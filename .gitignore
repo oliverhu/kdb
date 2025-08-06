@@ -1,6 +1,6 @@
 __pycache__/
 *.db
-playground/
+playground/*
 
 # uv related files
 .venv/
