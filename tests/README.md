@@ -4,10 +4,11 @@ This directory contains all the test files for the KDB database implementation.
 
 ## Test Files
 
-- `test_btree.py` - Tests for B-tree functionality (headers, pager, insert, splits)
+- `test_btree.py` - Tests for B-tree functionality (headers, pager, insert, splits, delete)
 - `test_cursor.py` - Tests for cursor functionality (navigation, traversal)
 - `test_record.py` - Tests for record serialization/deserialization
 - `test_select.py` - Tests for SELECT functionality
+- `test_delete_sql.py` - Tests for DELETE SQL syntax and execution
 
 ## Running Tests
 
