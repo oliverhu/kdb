@@ -23,6 +23,8 @@ def test_update_sql_parsing():
         "UPDATE users SET email = 'new@example.com' WHERE id = 1;",
         "UPDATE users SET username = 'John Updated' WHERE id = 2;",
         "UPDATE products SET price = 100 WHERE category = 'Electronics';",
+        "UPDATE users SET username = 'John Updated', email = 'john@example.com';",
+        "UPDATE products SET name = 'New Name', price = 200, category = 'Premium' WHERE id = 1;",
     ]
     
     for stmt in update_statements:
@@ -135,6 +137,28 @@ def test_update_sql_syntax():
     assert after_single_update_sorted == expected_after_single_sorted, f"After single update mismatch. Expected {expected_after_single_sorted}, got {after_single_update_sorted}"
     print("✓ Single column successfully updated")
 
+    # Test 2.5: UPDATE multiple columns
+    print("\n--- Test 2.5: UPDATE multiple columns ---")
+    update_cmd = "UPDATE users SET username = 'Bob Updated', email = 'bob.updated@example.com' WHERE id = 3;"
+    print(f"Executing: {update_cmd}")
+    parse_tree = parser.parse(update_cmd)
+    tree = transformer.transform(parse_tree)
+    vm.run(tree)
+
+    # Verify multiple column update
+    after_multi_update = capture_select_results("SELECT id, username, email FROM users;")
+    print(after_multi_update)
+    expected_after_multi = [
+        [1, 'John Doe', 'john.updated@example.com'],
+        [2, 'Jane Updated', 'jane.smith@example.com'],
+        [3, 'Bob Updated', 'bob.updated@example.com']  # both username and email updated
+    ]
+    # Sort both lists by id to handle B-tree reordering
+    after_multi_update_sorted = sorted(after_multi_update, key=lambda x: x[0])
+    expected_after_multi_sorted = sorted(expected_after_multi, key=lambda x: x[0])
+    assert after_multi_update_sorted == expected_after_multi_sorted, f"After multi-column update mismatch. Expected {expected_after_multi_sorted}, got {after_multi_update_sorted}"
+    print("✓ Multiple columns successfully updated")
+
     # Test 3: UPDATE without WHERE clause (should update all records)
     print("\n--- Test 3: UPDATE without WHERE clause ---")
     update_cmd = "UPDATE users SET email = 'all.updated@example.com';"
@@ -149,7 +173,7 @@ def test_update_sql_syntax():
     expected_after_all = [
         [1, 'John Doe', 'all.updated@example.com'],
         [2, 'Jane Updated', 'all.updated@example.com'],
-        [3, 'Bob Wilson', 'all.updated@example.com']
+        [3, 'Bob Updated', 'all.updated@example.com']  # username was updated in previous test
     ]
     # Sort both lists by id to handle B-tree reordering
     after_all_update_sorted = sorted(after_all_update, key=lambda x: x[0])
@@ -171,7 +195,7 @@ def test_update_sql_syntax():
     expected_after_complex = [
         [1, 'John Doe', 'all.updated@example.com'],
         [2, 'Jane Updated', 'all.updated@example.com'],
-        [3, 'Bob Updated', 'all.updated@example.com']
+        [3, 'Bob Updated', 'all.updated@example.com']  # username was updated in previous test
     ]
     # Sort both lists by id to handle B-tree reordering
     after_complex_update_sorted = sorted(after_complex_update, key=lambda x: x[0])
@@ -333,6 +357,30 @@ def test_update_sql_comprehensive():
     assert after_specific_update_sorted == expected_after_specific_sorted, f"After specific update mismatch. Expected {expected_after_specific_sorted}, got {after_specific_update_sorted}"
     print("✓ Specific record update successful")
 
+    # Test 3.5: UPDATE multiple columns in specific record
+    print("\n--- Test 3.5: UPDATE multiple columns in specific record ---")
+    update_cmd = "UPDATE products SET name = 'Premium Mouse', price = 150 WHERE id = 2;"
+    print(f"Executing: {update_cmd}")
+    parse_tree = parser.parse(update_cmd)
+    tree = transformer.transform(parse_tree)
+    vm.run(tree)
+
+    # Verify multiple column update in specific record
+    after_multi_specific = capture_select_results("SELECT id, name, category, price FROM products;")
+    print(after_multi_specific)
+    expected_after_multi_specific = [
+        [1, 'Gaming Laptop', 'Electronics', 1000],  # unchanged
+        [2, 'Premium Mouse', 'Electronics', 150],   # both name and price updated
+        [3, 'Book', 'Books', 25],                   # unchanged
+        [4, 'Tablet', 'Electronics', 1000],         # unchanged
+        [5, 'Pen', 'Office', 5]                     # unchanged
+    ]
+    # Sort both lists by id to handle B-tree reordering
+    after_multi_specific_sorted = sorted(after_multi_specific, key=lambda x: x[0])
+    expected_after_multi_specific_sorted = sorted(expected_after_multi_specific, key=lambda x: x[0])
+    assert after_multi_specific_sorted == expected_after_multi_specific_sorted, f"After multi-column specific update mismatch. Expected {expected_after_multi_specific_sorted}, got {after_multi_specific_sorted}"
+    print("✓ Multiple columns in specific record successfully updated")
+
     # Test 4: UPDATE with multiple conditions
     print("\n--- Test 4: UPDATE with multiple conditions ---")
     update_cmd = "UPDATE products SET price = 0 WHERE category = 'Electronics' AND price < 200;"
@@ -346,7 +394,7 @@ def test_update_sql_comprehensive():
     print(after_multi_condition)
     expected_after_multi_condition = [
         [1, 'Gaming Laptop', 'Electronics', 1000],  # unchanged (price >= 200)
-        [2, 'Mouse', 'Electronics', 1000],          # unchanged (price >= 200)
+        [2, 'Premium Mouse', 'Electronics', 0],     # updated (Electronics AND price < 200)
         [3, 'Book', 'Books', 25],                   # unchanged
         [4, 'Tablet', 'Electronics', 1000],         # unchanged (price >= 200)
         [5, 'Pen', 'Office', 5]                     # unchanged
@@ -370,7 +418,7 @@ def test_update_sql_comprehensive():
     print(after_all_records)
     expected_after_all_records = [
         [1, 'Gaming Laptop', 'General', 1000],
-        [2, 'Mouse', 'General', 1000],
+        [2, 'Premium Mouse', 'General', 0],
         [3, 'Book', 'General', 25],
         [4, 'Tablet', 'General', 1000],
         [5, 'Pen', 'General', 5]

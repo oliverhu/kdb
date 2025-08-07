@@ -98,7 +98,9 @@ GRAMMAR = """
 
         delete_stmt     : "delete"i "from"i table_name where_clause?
 
-        update_stmt     : "update"i table_name "set"i column_name "=" literal where_clause?
+        update_stmt     : "update"i table_name "set"i update_list where_clause?
+        update_list     : update_item ("," update_item)*
+        update_item     : column_name "=" literal
 
         truncate_stmt   : "truncate"i table_name
 

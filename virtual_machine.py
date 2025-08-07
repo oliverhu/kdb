@@ -53,8 +53,7 @@ class VirtualMachine(Visitor):
         
     def visit_update_stmt(self, stmt: UpdateStmt):
         table_name = stmt.table_name
-        column = stmt.column
-        value = stmt.value
+        update_list = stmt.update_list
         where_clause = stmt.where_clause
         
         # Get all records from the table
@@ -81,8 +80,8 @@ class VirtualMachine(Visitor):
         if where_clause:
             records = self.filter_records(where_clause, records)
 
-        # Update the records
-        self.state_manager.update(table_name, column, value, records)
+        # Update the records with multiple columns
+        self.state_manager.update_multiple(table_name, update_list, records)
 
     def visit_select_clause(self, stmt: SelectClause):
         pass

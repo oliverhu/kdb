@@ -103,7 +103,7 @@ class StateManager:
             tree.delete(record.get_primary_key())
     
     def update(self, table_name: str, column: str, value: Any, records: List[Record]):
-        """Update records in the specified table"""
+        """Update records in the specified table (single column)"""
         if table_name not in self.trees:
             raise ValueError(f"Table '{table_name}' not found")
         if table_name not in self.schemas:
@@ -123,6 +123,35 @@ class StateManager:
             
             # Update the record's column value
             record.values[column_name] = actual_value
+            
+            # Re-serialize the updated record
+            updated_cell = serialize(record)
+            
+            # Update the cell in the B-tree
+            tree.update_cell(record.get_primary_key(), updated_cell)
+
+    def update_multiple(self, table_name: str, update_list, records: List[Record]):
+        """Update records in the specified table with multiple columns"""
+        if table_name not in self.trees:
+            raise ValueError(f"Table '{table_name}' not found")
+        if table_name not in self.schemas:
+            raise ValueError(f"Schema for table '{table_name}' not found")
+        
+        tree: BTree = self.trees[table_name]
+        schema = self.schemas[table_name]
+        
+        for record in records:
+            print("updating", record.get_primary_key())
+            
+            # Update multiple columns in the record
+            for update_item in update_list.items:
+                column_name = update_item.column
+                
+                # Extract value from Literal object
+                actual_value = update_item.value.value if hasattr(update_item.value, 'value') else update_item.value
+                
+                # Update the record's column value
+                record.values[column_name] = actual_value
             
             # Re-serialize the updated record
             updated_cell = serialize(record)

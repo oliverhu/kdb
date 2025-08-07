@@ -214,10 +214,18 @@ class DeleteStmt(Symbol):
     from_clause: FromClause
 
 @dataclass
-class UpdateStmt(Symbol):
-    table_name: str
+class UpdateItem(Symbol):
     column: str
     value: Any
+
+@dataclass
+class UpdateList(Symbol):
+    items: List[UpdateItem]
+
+@dataclass
+class UpdateStmt(Symbol):
+    table_name: str
+    update_list: UpdateList
     where_clause: Optional[Any] = None
 
 @dataclass
@@ -419,10 +427,20 @@ class ToAst(Transformer):
             return DeleteStmt(from_clause)
 
     def update_stmt(self, args):
-        if len(args) == 3:
-            return UpdateStmt(args[0], args[1], args[2])
+        if len(args) == 2:
+            # table_name and update_list, no where_clause
+            return UpdateStmt(args[0], args[1], None)
         else:
-            return UpdateStmt(args[0], args[1], args[2], args[3])
+            # table_name, update_list, and where_clause
+            return UpdateStmt(args[0], args[1], args[2])
+
+    def update_list(self, args):
+        return UpdateList(args)
+
+    def update_item(self, args):
+        # args[0] is column_name, args[1] is literal
+        column_name = args[0].name if hasattr(args[0], 'name') else str(args[0])
+        return UpdateItem(column_name, args[1])
 
     def truncate_stmt(self, args):
         return TruncateStmt(args[0])
