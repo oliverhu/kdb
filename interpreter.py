@@ -40,6 +40,14 @@ class Interpreter(Visitor):
             return left != right
         elif expr.operator == ArithmeticOp.GT:
             return left > right
+        elif expr.operator == ArithmeticOp.LT:
+            return left < right
+        elif expr.operator == ArithmeticOp.GE:
+            return left >= right
+        elif expr.operator == ArithmeticOp.LE:
+            return left <= right
+        else:
+            raise ValueError(f"Unsupported comparison operator: {expr.operator}")
 
     def visit_term(self, expr: Term) -> Any:
         pass

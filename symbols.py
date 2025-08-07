@@ -398,7 +398,25 @@ class ToAst(Transformer):
         return InsertStmt(args[0], args[1], args[2])
 
     def delete_stmt(self, args):
-        return DeleteStmt(args[0])
+        if len(args) == 1:
+            # Only table_name, no where_clause
+            table_name = args[0]
+            # Create a FromClause with the table_name and no where_clause
+            single_source = SingleSource(table_name)
+            source = Source([single_source])
+            from_source = FromSource(source)
+            from_clause = FromClause(from_source, None)
+            return DeleteStmt(from_clause)
+        else:
+            # table_name and where_clause
+            table_name = args[0]
+            where_clause = args[1]
+            # Create a FromClause with the table_name and where_clause
+            single_source = SingleSource(table_name)
+            source = Source([single_source])
+            from_source = FromSource(source)
+            from_clause = FromClause(from_source, where_clause)
+            return DeleteStmt(from_clause)
 
     def update_stmt(self, args):
         if len(args) == 3:
@@ -497,13 +515,25 @@ class ToAst(Transformer):
     def GREATER_THAN(self, args):
         return ArithmeticOp.GT
 
+    def GREATER(self, args):
+        return ArithmeticOp.GT
+
     def LESS_THAN(self, args):
+        return ArithmeticOp.LT
+
+    def LESS(self, args):
         return ArithmeticOp.LT
 
     def GREATER_THAN_OR_EQUAL(self, args):
         return ArithmeticOp.GE
 
+    def GREATER_EQUAL(self, args):
+        return ArithmeticOp.GE
+
     def LESS_THAN_OR_EQUAL(self, args):
+        return ArithmeticOp.LE
+
+    def LESS_EQUAL(self, args):
         return ArithmeticOp.LE
 
     def ADD(self, args):

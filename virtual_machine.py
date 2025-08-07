@@ -44,12 +44,45 @@ class VirtualMachine(Visitor):
         from_clause = stmt.from_clause
         records = self.materialize(from_clause.source.source)
         where_clause = from_clause.where_clause
-        table_name = from_clause.source.source.single_source.table_name
+        # single_source is a list, get the first element
+        table_name = from_clause.source.source.single_source[0].table_name
         if where_clause:
             records = self.filter_records(where_clause, records)
 
         self.state_manager.delete(table_name, records)
         
+    def visit_update_stmt(self, stmt: UpdateStmt):
+        table_name = stmt.table_name
+        column = stmt.column
+        value = stmt.value
+        where_clause = stmt.where_clause
+        
+        # Get all records from the table
+        # We need to create a source object to materialize the table
+        from symbols import SingleSource, Source, FromSource, FromClause
+        single_source = SingleSource(table_name)
+        source = Source([single_source])
+        from_source = FromSource(source)
+        from_clause = FromClause(from_source, where_clause)
+        
+        # Create a temporary SelectStmt to reuse materialize logic
+        from symbols import SelectClause, Selectable, SelectStmt
+        # Create a select clause that selects all columns
+        selectable = Selectable(ColumnName("*"))  # We'll use "*" to represent all columns
+        select_clause = SelectClause([selectable])
+        
+        # Create a temporary select statement to reuse materialize logic
+        temp_select = SelectStmt(select_clause, from_clause)
+        
+        # Materialize records using the existing logic
+        records = self.materialize(from_clause.source.source)
+        
+        # Apply WHERE clause filtering if present
+        if where_clause:
+            records = self.filter_records(where_clause, records)
+
+        # Update the records
+        self.state_manager.update(table_name, column, value, records)
 
     def visit_select_clause(self, stmt: SelectClause):
         pass
@@ -180,8 +213,6 @@ class VirtualMachine(Visitor):
         # For now, insert into page 1
         self.state_manager.insert(table_name, record)
 
-    def visit_update_stmt(self, stmt: UpdateStmt):
-        pass
 
     def visit_truncate_stmt(self, stmt: TruncateStmt):
         pass

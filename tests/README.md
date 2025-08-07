@@ -9,6 +9,7 @@ This directory contains all the test files for the KDB database implementation.
 - `test_record.py` - Tests for record serialization/deserialization
 - `test_select.py` - Tests for SELECT functionality
 - `test_delete_sql.py` - Tests for DELETE SQL syntax and execution
+- `test_update_sql.py` - Tests for UPDATE SQL syntax and execution
 
 ## Running Tests
 

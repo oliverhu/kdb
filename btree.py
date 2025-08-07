@@ -23,7 +23,7 @@ from enum import Enum, auto
 import sys
 import os
 from pager import DatabaseFileHeader, Pager
-from typing import List
+from typing import Any, List
 
 from record import Record, deserialize, deserialize_key, serialize, cell_size
 from schema.basic_schema import BasicSchema, Column
@@ -270,6 +270,45 @@ class BTree:
             result = self.insert_cell_into_leaf_node(cell, page_num)
             header_after = LeafNodeHeader.from_header(self.pager.get_page(page_num))
             return result
+
+    def update_cell(self, key: int, new_cell: Cell):
+        """
+        Update a cell in the B-tree by replacing it with new cell data.
+        """
+        leaf_page_num = self.find(key)
+        leaf_page = bytearray(self.pager.get_page(leaf_page_num))
+        leaf_header = LeafNodeHeader.from_header(leaf_page)
+        
+        for i, ptr in enumerate(leaf_header.cell_pointers):
+            cell_data = leaf_page[ptr:]
+            cell_key = deserialize_key(cell_data)
+            if cell_key == key:
+                # Get the current cell size
+                current_cell_size = cell_size(cell_data)
+                new_cell_size = len(new_cell)
+                
+                # Check if the new cell fits in the same space
+                if new_cell_size <= current_cell_size:
+                    # Simple replacement
+                    leaf_page[ptr:ptr + new_cell_size] = new_cell
+                    # Clear any remaining space if new cell is smaller
+                    if new_cell_size < current_cell_size:
+                        leaf_page[ptr + new_cell_size:ptr + current_cell_size] = b'\x00' * (current_cell_size - new_cell_size)
+                else:
+                    # New cell is larger - handle by removing old cell and inserting new one
+                    # Remove the old cell
+                    self._remove_cell_from_leaf(leaf_page_num, i)
+                    
+                    # Insert the new cell
+                    self.insert_cell_into_leaf_node(new_cell, leaf_page_num)
+                    return True
+                
+                # Write the updated page
+                self.pager.write_page(leaf_page_num, bytes(leaf_page))
+                self.pager.pages[leaf_page_num] = leaf_page
+                return True
+        
+        raise ValueError(f"Key {key} not found in B-tree")
 
     def delete(self, key: int):
         """

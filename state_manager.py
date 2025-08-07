@@ -102,6 +102,34 @@ class StateManager:
             print("deleting", record.get_primary_key())
             tree.delete(record.get_primary_key())
     
+    def update(self, table_name: str, column: str, value: Any, records: List[Record]):
+        """Update records in the specified table"""
+        if table_name not in self.trees:
+            raise ValueError(f"Table '{table_name}' not found")
+        if table_name not in self.schemas:
+            raise ValueError(f"Schema for table '{table_name}' not found")
+        
+        tree: BTree = self.trees[table_name]
+        schema = self.schemas[table_name]
+        
+        for record in records:
+            print("updating", record.get_primary_key())
+            
+            # Extract column name from ColumnName object
+            column_name = column.name if hasattr(column, 'name') else str(column)
+            
+            # Extract value from Literal object
+            actual_value = value.value if hasattr(value, 'value') else value
+            
+            # Update the record's column value
+            record.values[column_name] = actual_value
+            
+            # Re-serialize the updated record
+            updated_cell = serialize(record)
+            
+            # Update the cell in the B-tree
+            tree.update_cell(record.get_primary_key(), updated_cell)
+    
     def insert(self, table_name: str, record: Record):
         """Insert a record into the specified table"""
         if table_name not in self.schemas:
