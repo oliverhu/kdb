@@ -54,14 +54,17 @@ class Cursor:
         if self.cell_num >= header.num_cells:
             self.navigate_to_next_leaf_node()
             self.cell_num = 0
+            # If we're still at the end after navigation, set end_of_table
+            if self.end_of_table:
+                return
 
     def get_cell(self):
         page = self.pager.get_page(self.page_num)
         header = LeafNodeHeader.from_header(bytes(page))
 
-        # Check if we're at the end of the current page
-        if self.cell_num >= header.num_cells:
-            return b''  # Return empty bytes if no more cells
+        # Check if we're at the end of the current page or if the page is empty
+        if self.cell_num >= header.num_cells or header.num_cells == 0:
+            return b''  # Return empty bytes if no more cells or empty page
 
         cell_offset = header.cell_pointers[self.cell_num]
         return page[cell_offset:]

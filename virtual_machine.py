@@ -227,6 +227,10 @@ class VirtualMachine(Visitor):
         while not cursor.end_of_table:
             try:
                 cell = cursor.get_cell()
+                # Skip empty cells (which happen when table is empty or at end)
+                if not cell or len(cell) == 0:
+                    cursor.advance()
+                    continue
                 record = deserialize(cell, schema)
                 records.append(record)
             except Exception as e:
